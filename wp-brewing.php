@@ -322,8 +322,8 @@ class WP_Brewing {
             '<table class="wp-brewing-recipe">
                <style type="text/css">
 
-                 /* temporary */
-                 /* table.wp-brewing-recipe tr th { border:1px solid red } */
+                 table.wp-brewing-recipe { font-size:11pt; }
+
 
                  table.wp-brewing-recipe tr th { background:white; color:#333 }
 
@@ -332,26 +332,31 @@ class WP_Brewing {
                  table.wp-brewing-recipe tr th a.glossaryLink:hover { color:#333 }
 
                  /* table.wp-brewing-recipe tr td { border:1px solid red } */
-                 table.wp-brewing-recipe tr th { padding-left:4px; width:60% }
-                 table.wp-brewing-recipe tr th+th { width:13%; text-align:right }
+                 table.wp-brewing-recipe tr th { padding-left:4px; width:70% }
+                 table.wp-brewing-recipe tr th+th { text-align:right }
                  table.wp-brewing-recipe tr th+th[colspan] { width:30%; text-align:right; padding-right:4px }
-                 table.wp-brewing-recipe tr th+th+th { padding-right:4px; width:17%; text-align:right }
+                 table.wp-brewing-recipe tr th+th+th { padding-right:4px; width:18%; text-align:right }
                  table.wp-brewing-recipe tr th[colspan] { text-align:center }
+                 table.wp-brewing-recipe tr th+th          { width:12% }
+
+
+
                  table.wp-brewing-recipe tr td[colspan] { text-align:center }
+                 table.wp-brewing-recipe tr td+td { text-align:right }
+
                  table.wp-brewing-recipe tr td+td[colspan] { width:30% }
-                 table.wp-brewing-recipe tr td+td { text-align:right; width:13% }
-                 table.wp-brewing-recipe tr td+td+td { width:18% }
+                 table.wp-brewing-recipe tr td+td          { width:12% }
+                 table.wp-brewing-recipe tr td+td+td       { width:18% }
 
-    	table.xsud tr th { background:white; color:#333; padding-left:4px; width:60% }
-    	table.xsud tr th+th { background:white; color:#333; width:13%; text-align:right }
-    	table.xsud tr th+th[colspan] { background:white; color:#333; width:13%; text-align:right; padding-right:4px }
-    	table.xsud tr th+th+th { background:white; color:#333; padding-right:4px; width:18%; text-align:right }
-    	table.xsud tr th[colspan] { text-align:center }
-    	table.xsud tr td[colspan] { text-align:center }
-    	table.xsud tr td+td { text-align:right; width:13% }
-    	table.xsud tr td+td+td { width:18% }
+                 table.wp-brewing-recipe span[data-cmtooltip] { color: #d0ffd0 }
 
-                 </style>
+                 @media only screen and (max-width: 800px) {
+                   table.wp-brewing-recipe { font-size:9pt }
+                   table.wp-brewing-recipe tr th+th          { width:16% }
+                   table.wp-brewing-recipe tr td+td          { width:16% }
+                 }
+
+               </style>
                <tr>
                  <th>{name}</th>
                  <th colspan="2">{brew_date}</th>
@@ -687,7 +692,7 @@ class WP_Brewing {
                         'dose' => $dose,
                         'amount' => number_format($a["amount"], ($unit == "g" ? 0 : 3), ",", "."),
                         'unit' => $unit,
-                        'tt_amount' => ($unit == "g") ? number_format($this->gToOz($a["amount"]), 0, ",", ".") . " oz" : ""
+                        'tt_amount' => ($unit == "g") ? number_format($this->gToOz($a["amount"]), 2, ",", ".") . " oz" : ""
                     ]);
             }
             // TBD: hops during mash? not really required. :-)
@@ -779,7 +784,7 @@ class WP_Brewing {
                 }
                 $rendered_alpha = "";
                 if ($h["alpha"] > 0) {
-                    $rendered_alpha = ", " . $h["alpha"] . " %α";
+                    $rendered_alpha = ", " . number_format($h["alpha"], 1, ",", ".") . " %α";
                 }
                 $rendered_time = "";
                 switch ($h["usage"]) {
@@ -790,20 +795,25 @@ class WP_Brewing {
                 case USAGE_WHIRLPOOL: $rendered_time = "Whirlpool"; break;
                 default: $rendered_time = "(?)";
                 }
+                $amount = number_format($h["amount"], 0, ",", ".");
+                $tt_amount = number_format($this->gToOz($h["amount"]), 2, ",", ".") . " oz";
                 $dose = number_format($h["amount"] / $recipe["planned_batch_volume"], 1, ",", ".") . " g/l";
+                $tt_dose = number_format($this->gToOz($h["amount"]) / $this->lToGal($recipe["planned_batch_volume"]), 2, ",", ".") . " oz/gal";
     			$content .= $this->formatString(
                     '<tr>
-                       <td>{rendered_name}{rendered_type}{rendered_alpha}, {dose}</td>
-                       <td>{amount} g</td>
+                       <td>{rendered_name}{rendered_type}{rendered_alpha}, <span data-cmtooltip="{tt_dose}">{dose}</span></td>
+                       <td><span data-cmtooltip="{tt_amount}">{amount} g</span></td>
                        <td>{rendered_time}</td>
                      </tr>',
                     [
                         'rendered_name' => $rendered_name,
                         'rendered_type' => $rendered_type,
                         'rendered_alpha' => $rendered_alpha,
-                        'amount' => number_format($h["amount"], 0, ",", "."),
+                        'amount' => $amount,
+                        'tt_amount' => $tt_amount,
                         'rendered_time' => $rendered_time,
-                        'dose' => $dose
+                        'dose' => $dose,
+                        'tt_dose' => $tt_dose
                     ]);
     		}
             foreach ($recipe["adjuncts"] as $a) {
@@ -812,8 +822,6 @@ class WP_Brewing {
                 if (strlen($a["url"]) >= 1) {
                     $rendered_name = '<a href="' . $a["url"] . '">' . $rendered_name . '</a>';
                 }
-                $unit = $a["unit"];
-                $dose = number_format($a["amount"] / $recipe["planned_batch_volume"], 1, ",", ".") . " " . $unit . "/l";
                 $rendered_time = "";
                 switch ($a["usage"]) {
                 case USAGE_MASH: $rendered_time = "Maische"; break;
@@ -823,10 +831,13 @@ class WP_Brewing {
                 case USAGE_WHIRLPOOL: $rendered_time = "Whirlpool"; break;
                 default: $rendered_time = "(?)";
                 }
+                $unit = $a["unit"];
+                $amount = number_format($a["amount"], 0, ",", ".");
+                $dose = number_format($a["amount"] / $recipe["planned_batch_volume"], 1, ",", ".") . " " . $unit . "/l";
     			$content .= $this->formatString(
                     '<tr>
                        <td>{rendered_name}, {dose}</td>
-                       <td><span data-cmtooltip="{tt_amount}">{amount} {unit}</span></td>
+                       <td>{amount} {unit}</td>
                        <td>{rendered_time}</td>
                      </tr>',
                     [
@@ -834,7 +845,6 @@ class WP_Brewing {
                         'dose' => $dose,
                         'amount' => number_format($a["amount"], ($unit == "g" ? 0 : 3), ",", "."),
                         'unit' => $unit,
-                        'tt_amount' => ($a["unit"] == "g") ? number_format($this->gToOz($a["amount"]), 0, ",", ".") . " oz" : "",
                         'rendered_time' => $rendered_time
                     ]);
             }
@@ -1076,7 +1086,7 @@ class WP_Brewing {
             $rendered_alpha = "";
             /* Alpha not of interest here
             if ($h["alpha"] > 0) {
-                $rendered_alpha = ", " . $h["alpha"] . " %α";
+                $rendered_alpha = ", " . number_format($h["alpha"], 1, ",", ".") . " %α";
             }
             */
             $rendered_time = "";
@@ -1835,391 +1845,10 @@ class WP_Brewing {
                 }
                 $i += 1;
             }
-
-
-            
-    		$content .= $this->formatString('
-        <table class="xsud">
-          <style type="text/css">
-    	table.xsud tr th { background:white; color:#333; padding-left:4px; width:60% }
-    	table.xsud tr th+th { background:white; color:#333; width:13%; text-align:right }
-    	table.xsud tr th+th[colspan] { background:white; color:#333; width:13%; text-align:right; padding-right:4px }
-    	table.xsud tr th+th+th { background:white; color:#333; padding-right:4px; width:18%; text-align:right }
-    	table.xsud tr th[colspan] { text-align:center }
-    	table.xsud tr td[colspan] { text-align:center }
-    	table.xsud tr td+td { text-align:right; width:13% }
-    	table.xsud tr td+td+td { width:18% }
-          </style>
-          <tr>
-            <th>{Sudname}</th>
-            <th colspan="2">{Braudatum}</th>
-          </tr>
-          <tr>
-            <td>Menge</td>
-            <td colspan="2">{Menge} Liter{MengeSoll}</td>
-          </tr>
-          <tr>
-            <td>Stammwürze</td>
-            <td colspan="2">{Stammwuerze} °P</td>
-          </tr>
-          <tr>
-            <td>Alkohol</td>
-            <td colspan="2">{Alkohol}</td>
-          </tr>
-          <tr>
-            <td>Bittere</td>
-            <td colspan="2">{IBU} IBU</td>
-          </tr>
-          <tr>
-            <td>Farbe</td>
-            <td colspan="2">{Farbe} EBC</td>
-          </tr>',
-                                            [
-                                                'Sudname' => $Sud["Sudname"],
-                                                'Braudatum' => $Sud["BierWurdeGebraut"] ? $Sud["Braudatum"] : 'noch nicht gebraut',
-                                                'Menge' => $Sud["BierWurdeAbgefuellt"] ? number_format($Sud["erg_AbgefuellteBiermenge"], 1, ",", ".") : number_format($Sud["Menge"], 1, ",", "."),
-                                                'MengeSoll' => $Sud["BierWurdeAbgefuellt"] ? "" : " (geplant)",
-                                                'Stammwuerze' => $Sud["BierWurdeGebraut"] ? number_format($Sud["SWAnstellen"], 1, ",", ".") : number_format($Sud["SW"], 1, ",", "."),
-                                                'Alkohol' => $Sud["BierWurdeGebraut"] ?
-                                                ( $Sud["BierWurdeAbgefuellt"] ?
-                                                  number_format($Sud["erg_Alkohol"], 1, ",", ".") . " %vol"
-                                                  : ( $GaertageBisher > 2 ?
-                                                      "(bisher " . number_format($Sud["erg_Alkohol"], 1, ",", ".") . " %vol)"
-                                                      : "(zu früh)"
-                                                  )
-                                                ) : "(vorauss. " . number_format($Sud["erg_Alkohol"], 1, ",", ".") . " %vol)",
-                                                'IBU' => round($Sud["IBU"]),
-                                                'Farbe' => round($Sud["erg_Farbe"])
-                                            ]);
-    		if ($Sud["BierWurdeGebraut"]) {
-    			$kcal = $Sud["BierWurdeAbgefuellt"] ? round($kcal) . " kcal/100ml" : "(bisher " . round($kcal) . " kcal/100ml)";
-    			$content .= $this->formatString('
-            <tr>
-              <td>Energie</td>
-              <td colspan="2">{kcal}</td>
-            </tr>',
-                                                [ 'kcal' => $kcal ]);
-    		}
-    		$content .= $this->extractComment($Sud, "Trinktemperatur", "Trinktemperatur", "");
-    		$content .= $this->extractComment($Sud, "Song zum Bier", "Song", "");
-    		if (strpos($Sud["Kommentar"], '[[Restbestand') !== false) {
-    			$content .= $this->extractComment($Sud, "Restbestand", "Restbestand", "");
-    		} else {
-    			if ($Sud["BierWurdeAbgefuellt"] && $Sud["BierWurdeVerbraucht"]) {
-    				$content .= '
-              <tr>
-                <td>Restbestand</td>
-                <td colspan="2">0</td>
-              </tr>';
-    			}
-    		}
-
-            $content .= $this->formatString('
-          <tr>
-            <th>Schüttung / Maische</th>
-            <th colspan="2">{schuettung} kg</th>
-          </tr>',
-                                            [ 'schuettung' => number_format($Sud["erg_S_Gesammt"], 3, ",", ".") ]);
-    		while ($malz = $dbschuettung->fetchArray()) {
-    			$content .= $this->formatString('
-            <tr>
-              <td>{Name}</td>
-              <td>{Prozent} %</td>
-              <td style="text-align:right">{Menge} kg</td>
-            </tr>',
-                                                [
-                                                    'Name' => $this->displayMalz($db, $malz["Name"]),
-                                                    'Prozent' => round($malz["Prozent"]),
-                                                    'Menge' => number_format($malz["erg_Menge"], 3, ",", ".")
-                                                ]);
-    		}
-    		while ($weiteres = $dbweiteremaischgaben->fetchArray()) {
-    			$content .= $this->formatString('
-            <tr>
-              <td>{Name}</td>
-              <td>{Menge} g/l</td>
-              <td style="text-align:right">{erg_Menge}</td>
-            </tr>',
-                                                [
-                                                    'Name' => $this->displayWeiteres($db, $weiteres["Name"]),
-                                                    'Menge' => number_format($weiteres["Menge"], 1, ",", "."),
-                                                    'erg_Menge' => $weiteres["Einheit"] == 1 ? $weiteres["erg_Menge"] . " g" : number_format(round($weiteres["erg_Menge"] / 1000, 3), 3, ",", ".") . " kg"
-                                                ]);
-    		}
-    		$content .= $this->formatString('
-          <tr>
-            <td>Restalkalität</td>
-            <td colspan="2">{RestalkalitaetSoll} °dH</td>
-          </tr>',
-                                            [ 'RestalkalitaetSoll' => number_format($Sud["RestalkalitaetSoll"], 1, ",", ".") ]);
-    		if ($Sud["highGravityFaktor"] > 0) {
-    			$content .= $this->formatString('
-          <tr>
-              <td>High-Gravity Faktor</td>
-              <td colspan="2">{highGravityFaktor}</td>
-          </tr>',
-                                                [ 'highGravityFaktor' => number_format($Sud["highGravityFaktor"], 1, ",", ".") ]);
-    		}
-    		$content .= $this->formatString('
-          <tr>
-            <td>Hauptguss</td>
-            <td colspan="2">{erg_WHauptguss} Liter</td>
-          </tr>
-          <tr>
-            <td>Einmaischen</td>
-            <td>{EinmaischenTemp} °C</td>
-            <td></td>
-          </tr>',
-                                            [
-                                                'erg_WHauptguss' => number_format($Sud["erg_WHauptguss"], 1, ",", "."),
-                                                'EinmaischenTemp' => $Sud["EinmaischenTemp"]
-                                            ]);
-    		while ($rast = $dbrasten->fetchArray()) {
-    			$content .= $this->formatString('
-            <tr>
-              <td>{RastName}</td>
-              <td>{RastTemp} °C</td>
-              <td>{RastDauer} Minuten</td>
-            </tr>',
-                                                [
-                                                    'RastName' => $rast["RastName"],
-                                                    'RastTemp' => round($rast["RastTemp"]),
-                                                    'RastDauer' => $rast["RastDauer"]
-                                                ]);
-    		}
-    		$content .= $this->formatString('
-          <tr>
-            <td>Nachguss</td>
-            <td colspan="2">{erg_WNachguss} Liter</td>
-          </tr>',
-                                            [ 'erg_WNachguss' => number_format($Sud["erg_WNachguss"], 1, ",", ".") ]);
-    		$content .= $this->formatString('
-          <tr>
-            <th>Würzekochen</th>
-            <th colspan="2">{KochdauerNachBitterhopfung} Minuten</th>
-          </tr>',
-                                            [ 'KochdauerNachBitterhopfung' => $Sud["KochdauerNachBitterhopfung"] ]);
-    		/* Vorderwürzhopfen */
-    		while ($hopfen = $dbvwh->fetchArray()) {
-    			$alpha = $hopfen["Alpha"] > 0 ? ", " . number_format($hopfen["Alpha"], 1, ",", ".") . " % Alphasäure" : "";
-    			$pellets = $hopfen["Pellets"] == 1 ? ", Pellets" : "";
-    			$content .= $this->formatString('
-            <tr>
-              <td>{Name}{alpha}{pellets}</td>
-              <td>{erg_Menge} g</td>
-              <td>Vorderwürze</td>
-            </tr>',
-                                                [
-                                                    'Name' => $this->displayHopfen($db, $hopfen["Name"]),
-                                                    'alpha' => $alpha,
-                                                    'pellets' => $pellets,
-                                                    'erg_Menge' => round($hopfen["erg_Menge"])
-                                                ]);
-    		}
-    		/* Hopfengaben und weitere Gaben nach Kochzeit sortiert zusammenführen */
-    		$gaben = [];
-    		while ($hopfen = $dbhopfen->fetchArray()) {
-    			$alpha = $hopfen["Alpha"] > 0 ? ", " . number_format($hopfen["Alpha"], 1, ",", ".") . " % Alphasäure" : "";
-    			$pellets = $hopfen["Pellets"] == 1 ? ", Pellets" : "";
-    			$s = $this->formatString('{Name}{alpha}{pellets}',
-                                         [
-                                             'Name' => $this->displayHopfen($db, $hopfen["Name"]),
-                                             'alpha' => $alpha,
-                                             'pellets' => $pellets,
-                                         ]);
-    			$g = [ "Name" => $s, "Menge" => $hopfen["erg_Menge"], "Zeit" => $hopfen["Zeit"] ];
-    			array_push($gaben, $g);
-    		}
-    		while ($w = $dbweiterekochgaben->fetchArray()) {
-    			$g = [ "Name" => $this->displayWeiteres($db, $w["Name"]), "Menge" => $w["erg_Menge"], "Zeit" => $w["Zugabedauer"] ];
-    			array_push($gaben, $g);
-    		}
-    		usort($gaben, "gaben_cmp");
-    		foreach ($gaben as $g) {
-    			$content .= $this->formatString('
-            <tr>
-              <td>{Name}</td>
-              <td>{Menge} g</td>
-              <td>{Zeit}</td>
-            </tr>',
-                                                [
-                                                    'Name' => $g["Name"],
-                                                    'Menge' => round($g["Menge"]),
-                                                    'Zeit' => $g["Zeit"] == 0 ? "Kochende" : ( $g["Zeit"] < 0 ? "Whirlpool" : $g["Zeit"] . " Minuten" )
-                                                ]);
-    		}
-    		if ($Sud["BierWurdeGebraut"]) {
-    			$content .= $this->formatString('
-          <tr>
-            <td>Sudhausausbeute</td>
-            <td colspan="2">{erg_Sudhausausbeute} %</td>
-          </tr>',
-                                                [ 'erg_Sudhausausbeute' => round($Sud["erg_Sudhausausbeute"]) ]);
-    		}
-    		if ($Sud["Nachisomerisierungszeit"] > 0) {
-    			$content .= $this->formatString('
-          <tr>
-            <td>Nachisomerisierung</td>
-            <td colspan="2">{Nachisomerisierungszeit} Minuten</td>
-          </tr>',
-                                                [ 'Nachisomerisierungszeit' => round($Sud["Nachisomerisierungszeit"]) ]);
-    		}
-    		if ($Sud["BierWurdeGebraut"] && $Sud["WuerzemengeKochende"]) {
-    			$content .= $this->formatString('
-          <tr>
-            <td>Würzemenge vor dem Hopfenseihen</td>
-            <td colspan="2">{Menge} Liter</td>
-          </tr>',
-                                                [
-                                                    'Menge' => number_format($Sud["WuerzemengeVorHopfenseihen"], 1, ",", ".")
-                                                ]);
-    		}
-    		$nrows = 0;
-    		$dbgaergaben->reset();
-    		while ($dbgaergaben->fetchArray())
-    		    $nrows++;
-    		$dbgaergaben->reset();
-    		$Kalthopfung = $nrows >= 1 ? " / Kalthopfung" : "";
-    		if ($Sud["BierWurdeAbgefuellt"]) {
-                $d = date_diff(date_create($Sud["Anstelldatum"]), date_create($Sud["Abfuelldatum"]));
-                $date = $d->format("%a") . " Tage";
-    		} else {
-                if ($Sud["BierWurdeGebraut"]) {
-                    $d = date_diff(date_create($Sud["Anstelldatum"]), date_create());
-    				$d = 1 + $d->format("%a");
-                    $date = "seit " . $d . ( $d == 1 ? " Tag" : " Tagen" );
-    			} else {
-                    $date = "-";
-                }
-    		}
-    		$content .= $this->formatString('
-          <tr>
-            <th>Hauptgärung{Kalthopfung}</th>
-            <th colspan="2">{date}</th>
-          </tr>',
-                                            [
-                                                'Kalthopfung' => $Kalthopfung,
-                                                'date' => $date
-                                            ]);
-    		if ($Sud["BierWurdeGebraut"]) {
-    			$content .= $this->formatString('
-          <tr>
-            <td>Anstellmenge nach dem Hopfenseihen</td>
-            <td colspan="2">{Menge} Liter</td>
-          </tr>',
-                                                [
-                                                    'Menge' => $Sud["WuerzemengeAnstellen"] ? number_format($Sud["WuerzemengeAnstellen"], 1, ",", ".") : number_format($Sud["Menge"], 1, ",", ".")
-                                                ]);
-    		}
-    		$content .= $this->formatString('
-          <tr>
-            <td>{Hefe}</td>
-            <td colspan="2">{Anzahl} * {Menge}</td>
-          </tr>',
-                                            [
-                                                'Hefe' => $this->displayHefe($db, $Sud["AuswahlHefe"]),
-                                                'Anzahl' => $Sud["HefeAnzahlEinheiten"],
-                                                'Menge' => $this->displayHefeMenge($db, $Sud["AuswahlHefe"])
-                                            ]);
-    		while ($g = $dbgaergaben->fetchArray()) {
-    			$content .= $this->formatString('
-            <tr>
-              <td>{Name}</td>
-              <td>{Menge} g/l</td>
-              <td style="text-align:right">{erg_Menge}</td>
-            </tr>',
-                                                [
-                                                    'Name' => $g["Name"],
-                                                    'Menge' => number_format($g["Menge"], 1, ",", "."),
-                                                    'erg_Menge' => $g["Einheit"] == 1 ? round($g["erg_Menge"]) . " g" : number_format(round($g["erg_Menge"] / 1000, 3), 3, ",", ".") . " kg"
-                                                ]);
-    		}
-    		if ($restextrakt) {
-    		   	if ($Sud["BierWurdeAbgefuellt"]) {
-                    $extrakt = number_format($restextrakt, 1, ",", ".") . " GG%";
-    				$evg = round(($Sud["SWAnstellen"] - $restextrakt) * 100 / $Sud["SWAnstellen"]) . " %";
-    			} else {
-                    $extrakt = "(bisher " . number_format($restextrakt, 1, ",", ".") . " GG%)";
-    				$evg = "(bisher " . round(($Sud["SWAnstellen"] - $restextrakt) * 100 / $Sud["SWAnstellen"]) . " %)";
-    			}
-                $content .= $this->formatString('
-          <tr>
-            <td>Restextrakt</td>
-            <td colspan="2">{extrakt}</td>
-          </tr>
-          <tr>
-    	<td>scheinbarer Endvergärungsgrad</td>
-            <td colspan="2">{evg}</td>
-          </tr>',
-                                                [
-                                                    'extrakt' => $extrakt,
-                                                    'evg' => $evg
-                                                ]);
-    		}
-    		$content .= $this->formatString('
-          <tr>
-            <th>Abfüllung</th>
-    	<th colspan="2">{abfuellung}</th>
-          </tr>',
-                                            [
-                                                'abfuellung' => $Sud["BierWurdeAbgefuellt"] ? $Sud["Abfuelldatum"] : "noch nicht abgefüllt"
-                                            ]);
-    		if (strpos($Sud["Kommentar"], '[[CO2') !== false) {
-    			$content .= $this->extractComment($Sud, "Karbonisierung", "CO2", "g/l");
-    		} else {
-    			if ($restextrakt && ($co2 > 3.0)) {
-                    if ($NachgaertageBisher > 5) {
-                        $c = number_format($co2, 1, ",", ".") . " g/l";
-                    } else {
-                        $c = "(bisher " . number_format($co2, 1, ",", ".") . " g/l)";
-    				}
-    			} else {
-                    $c = number_format($Sud["CO2"], 1, ",", ".") . " g/l (Soll)";
-    			}
-    			$content .= $this->formatString('
-          <tr>
-            <td>Karbonisierung</td>
-    	<td colspan="2">{c}</td>
-          </tr>',
-                                                [
-                                                    'c' => $c
-                                                ]);
-    		}
-    		if ($Sud["BierWurdeAbgefuellt"]) {
-    			$content .= $this->formatString('
-          <tr>
-            <td>Abfüllmenge</td>
-    	<td colspan="2">{Menge} Liter</td>
-          </tr>',
-                                                [
-                                                    'Menge' => number_format($Sud["erg_AbgefuellteBiermenge"], 1, ",", ".")
-                                                ]);
-    		}
-    		$content .= $this->extractComment($Sud, "Gebinde", "Gebinde", "");
-    		$content .= $this->extractComment($Sud, "Kronkorkenfarbe", "Kronkorkenfarbe", "");
-    		$content .= $this->formatString('
-          <tr>
-            <td>geplante Reifezeit</td>
-    	<td colspan="2">{reifezeit} Wochen</td>
-          </tr>',
-                                            [
-                                                'reifezeit' => $Sud["Reifezeit"]
-                                            ]);
-
-    		$content .= $this->formatString('
-          <tr>
-            <td colspan="3" style="font-size:10pt">Rezept erstellt mit dem <a href="http://www.joerum.de/kleiner-brauhelfer/doku.php">Kleinen Brauhelfer</a><xsl:text> </xsl:text><xsl:value-of select="Version/kleiner-brauhelfer"/>,<br/>zuletzt bearbeitet am {Gespeichert}.</td>
-          </tr>
-        </table>',
-                                            [
-                                                'Gespeichert' => date_format(date_create($Sud["Gespeichert"]), "Y-m-d, H:i")
-                                            ]);
-            
-    	}
+        }
         
     	$db->close();
 
-        // $content .= $this->renderRecipe($recipe);
         $content = $this->renderRecipe($recipe);
         
     	return $content;
