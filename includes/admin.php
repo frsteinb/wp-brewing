@@ -46,6 +46,7 @@ class WP_Brewing_Admin {
 		register_setting( 'wp_brewing_group', 'wp_brewing_bs_location', 'text' );
 		register_setting( 'wp_brewing_group', 'wp_brewing_bs_cache', 'absint' );
 		register_setting( 'wp_brewing_group', 'wp_brewing_category', 'text' );
+		register_setting( 'wp_brewing_group', 'wp_brewing_bjcp_name', 'text' );
 
 		add_settings_section(
 			'wp_brewing_section',
@@ -94,11 +95,19 @@ class WP_Brewing_Admin {
 			'wp_brewing_section'
 		);
 
+		add_settings_field(
+			'wp_brewing_bjcp_name',
+			__( 'BJCP XML file name', 'wp-brewing' ),
+			array( $this, 'bjcp_name_option' ),
+			'wp-brewing',
+			'wp_brewing_section'
+		);
+
 
 	}
 
 	function print_section_info() {
-		_e( 'The settings specify the access to the SQLite3 database file of "Kleiner Brauhelfer". The location can be a file path on the WordPress server system or a URL. In case of a file path, this file must be accessible to the web server user. In case of a URL, the cache duration is applied. A URL might be useful, if you store your KBH database on cloud storage, for example.', 'wp-brewing' );
+		_e( 'The settings specify the access to the SQLite3 database file of "Kleiner Brauhelfer". The location can be a file path on the WordPress server system or a URL. In case of a file path, this file must be accessible to the web server user. In case of a URL, the cache duration is applied. A URL might be useful, if you store your KBH database on cloud storage, for example. If the BJCP Styleguide in XML form has been uploaded, you can specify its file name, so that style IDs can be rendered more meaningful.', 'wp-brewing' );
 	}
 
 	function kbh_location_option() {
@@ -130,6 +139,13 @@ class WP_Brewing_Admin {
 	function category_option() {
 		?>
 		<input type="text" id="wp_brewing_category" name="wp_brewing_category" value="<?php echo get_option( 'wp_brewing_category', 'Sude' ); ?>" />
+		<?php
+	}
+
+	function bjcp_name_option() {
+		$location = get_option( 'wp_brewing_bjcp_name', "xxx" );
+		?>
+		<input type="text" size="60" id="wp_brewing_bjcp_name" name="wp_brewing_bjcp_name" value="<?php echo get_option( 'wp_brewing_bjcp_name', "..." ); ?>" />
 		<?php
 	}
 
