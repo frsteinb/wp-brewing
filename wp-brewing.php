@@ -121,7 +121,12 @@ class WP_Brewing {
 
         add_shortcode('bjcp-styleguide', array($this, 'bjcp_styleguide_shortcode'));
         add_shortcode('bjcp-style', array($this, 'bjcp_style_shortcode'));
-        
+
+        // if (isset($_GET["attachment_id"] ) && isset($_GET['download_2075'])) {
+        if (isset($_GET['download_2075'])) {
+            $this->kbh_send_2075($_GET['download_2075']);
+        }
+
     }
 
 
@@ -408,6 +413,14 @@ class WP_Brewing {
 
 
     
+    function formatString($str, $data) {
+        return preg_replace_callback('#{(\w+?)(\.(\w+?))?}#', function($m) use ($data) {
+                return count($m) === 2 ? $data[$m[1]] : $data[$m[1]][$m[3]];
+            }, $str);
+    }
+    
+
+
     function renderStyle($id_or_name) {
         $styleguide_name = get_option('wp_brewing_bjcp_name', 'styleguide');
         $query = new WP_Query( array(
@@ -429,19 +442,19 @@ class WP_Brewing {
 
                 $class_fragment = "";
                 $node = $style;
-                $l0 = "/glossary/";
+                $l0 = "/glossary/bjcp-";
                 if ($node->nodeName == "specialty") {
-                    $l = strtolower($this->attr($node->parentNode, "id") . "-" . str_replace(" ", "-", $this->childNode($node, "name")->textContent));
+                    $l = strtolower(str_replace(" ", "-", $this->childNode($node, "name")->textContent));
                     $class_fragment = "<br/> > > > <a href=\"" . $l0 . $l . "\">Specialty \"" . $this->childNode($node, "name")->textContent . "\"</a>";
                     $node = $node->parentNode;
                 }
                 if ($node->nodeName == "subcategory") {
-                    $l = strtolower($this->attr($node, "id") . "-" . str_replace(" ", "-", $this->childNode($node, "name")->textContent));
+                    $l = strtolower($this->attr($node, "id"));
                     $class_fragment = "<br/> > > <a href=\"" . $l0 . $l . "\">Subcategory " . $this->attr($node, "id") . " (" . $this->childNode($node, "name")->textContent . ")</a>" . $class_fragment;
                     $node = $node->parentNode;
                 }
                 if ($node->nodeName == "category") {
-                    $l = strtolower($this->attr($node, "id") . "-" . str_replace(" ", "-", $this->childNode($node, "name")->textContent));
+                    $l = strtolower($this->attr($node, "id"));
                     $class_fragment = "<br/> > <a href=\"" . $l0 . $l . "\">Category " . $this->attr($node, "id") . " (" . $this->childNode($node, "name")->textContent . ")</a>" . $class_fragment;
                     $node = $node->parentNode;
                 }
@@ -582,7 +595,7 @@ class WP_Brewing {
                 $details_fragment = "<dl>" . $class_fragment . $details_fragment . $children_fragment . "</dl>";
                     
                 $content .= $this->formatString(
-                    '<p style="font-size: 70%;">Die folgenden Informationen entstammen einer XML-Form der BJCP Style Guidelines, die per <a href="https://github.com/meanphil/bjcp-guidelines-2015">GitHub</a> öffentlich verfügbar ist. Ich bereite diese Daten hier lediglich für meine persönlichen und nicht gewerblichen Zwecke auf, um sie leichter lesbar zu machen und Werte mit den in Deutschland gebräuchlicheren Einheiten darzustellen..</p>
+                    '<p style="font-size: 70%;">Die folgenden Informationen entstammen einer XML-Form der BJCP Style Guidelines, die per <a href="https://github.com/meanphil/bjcp-guidelines-2015">GitHub</a> öffentlich verfügbar ist. Ich bereite diese Daten hier lediglich für meine persönlichen und nicht gewerblichen Zwecke auf, um sie leichter lesbar zu machen und Werte mit den in Deutschland gebräuchlicheren Einheiten darzustellen.</p>
                      <h2>{name}</h2>
                      {stats_fragment}
                      {details_fragment}
@@ -816,7 +829,7 @@ class WP_Brewing {
                 ]);
         }
         
-        if ($recipe["abv"] or (($recipe["og"] or $recipe["planned_og"]) and ($recipe["fg"] or $recipe["estimated_fg"]))) {
+        if ($recipe["abv"] or (($recipe["og"] or $recipe["planned_og"]) and ($recipe["fg"] or $recipe["current_g"] or $recipe["estimated_fg"]))) {
             $tt = null;
             if ($this->calcAbv($recipe["og"], $recipe["current_g"])) {
                 $value = number_format($this->calcAbv($recipe["og"], $recipe["current_g"]), 1, ",", ".");
@@ -1114,7 +1127,7 @@ class WP_Brewing {
                 switch ($a["usage"]) {
                 case USAGE_MASH: $rendered_time = "Maische"; break;
                 case USAGE_FIRSTWORT: $rendered_time = "Vorderwürze"; break;
-                case USAGE_BOIL: $rendered_time = ($a["time"] == 0) ? " Kochende" : ($a["time"] . " Minuten"); break;
+                case USAGE_BOIL: $rendered_time = (($a["time"] == 0) ? "Kochende" : (number_format($a["time"], 0, ",", ".") . " Minuten")); break;
                 case USAGE_FLAMEOUT: $rendered_time = "Kochende"; break;
                 case USAGE_WHIRLPOOL: $rendered_time = "Whirlpool"; break;
                 default: $rendered_time = "(?)";
@@ -1409,7 +1422,7 @@ class WP_Brewing {
         if ($recipe["fg"] || $recipe["current_g"]) {
             $tt = null;
             if ($recipe["og"] && $recipe["current_g"]) {
-                $attenuation = ($recipe["og"] - $recipe["current_g"]) * 100 / $recipe["og"];
+                $attenuation = ($this->sgToPlato($recipe["og"]) - $this->sgToPlato($recipe["current_g"])) * 100 / $this->sgToPlato($recipe["og"]);
                 $value = number_format($attenuation, 0, ",", ".");
                 $label = "Bisheriger scheinbarer Vergärungsgrad";
             }
@@ -1510,7 +1523,7 @@ class WP_Brewing {
             } elseif ($recipe["brew_date"] && ($ferm_days > 0)) {
                 $d = new DateTime($this->renderDate($recipe["brew_date"]));
                 date_add($d, new DateInterval('P' . $ferm_days . 'D'));
-                date_add($d, DateInterval('P' . $recipe["age_days"] . 'D'));
+                date_add($d, new DateInterval('P' . $recipe["age_days"] . 'D'));
                 $tt = "trinkfertig: " . $this->renderDate($d->format("Y-m-d"));
             }
     		$content .= $this->formatString(
@@ -1545,14 +1558,6 @@ class WP_Brewing {
 
 
     
-    function formatString($str, $data) {
-        return preg_replace_callback('#{(\w+?)(\.(\w+?))?}#', function($m) use ($data) {
-                return count($m) === 2 ? $data[$m[1]] : $data[$m[1]][$m[3]];
-            }, $str);
-    }
-    
-
-
     function extractText($text, $tag, $default) {
         $value = $default;
         if (strpos($text, '[[' . $tag) !== false) {
@@ -1562,123 +1567,6 @@ class WP_Brewing {
         // $value = htmlentities($value);
         $value = trim($value);
         return $value;
-    }
-
-
-
-    function extractComment($Sud, $Label, $Tag, $Suffix) {
-        if (strpos($Sud["Kommentar"], '[[' . $Tag) !== false) {
-            $Value = preg_replace('/^.*\[\[' . $Tag . ' *:([^\]]*)\]\].*$/s', '$1', $Sud["Kommentar"]);
-            $Value = preg_replace('/\+/s', '<br/>', $Value);
-            $result = $this->formatString('<tr><td>{Label}</td><td colspan="2">{Value}{Suffix}</td></tr>',
-                                          [ 'Label' => $Label, 'Value' => $Value, "Suffix" => $Suffix ]);
-        }
-        return $result;
-    }
-
-
-
-    function displayMalz($db, $name) {
-        $ret = $name;
-        $query = 'SELECT * FROM Malz WHERE Beschreibung = "' . $name . '"';
-        $result = $db->query($query);
-        if ($result) {
-            while ($row = $result->fetchArray()) {
-                $ret = $row["Beschreibung"];
-                if (strlen($row["Link"]) >= 1) {
-                    $ret = '<a href="' . $row["Link"] . '">' . $name . '</a>';
-                }
-            }
-        }
-        return $ret;
-    }
-
-
-    
-    function displayWeiteres($db, $name) {
-        $ret = $name;
-        $query = 'SELECT * FROM WeitereZutaten WHERE Beschreibung = "' . $name . '"';
-        $result = $db->query($query);
-        if ($result) {
-            while ($row = $result->fetchArray()) {
-                if (strlen($row["Link"]) >= 1) {
-                    $ret = '<a href="' . $row["Link"] . '">' . $name . '</a>';
-                }
-            }
-        }
-        return $ret;
-    }
-
-
-    
-    function displayHopfen($db, $name) {
-        $ret = $name;
-        $query = 'SELECT * FROM Hopfen WHERE Beschreibung = "' . $name . '"';
-        $result = $db->query($query);
-        if ($result) {
-            while ($row = $result->fetchArray()) {
-                if (strlen($row["Link"]) >= 1) {
-                    $ret = '<a href="' . $row["Link"] . '">' . $name . '</a>';
-                }
-            }
-        }
-        return $ret;
-    }
-
-
-    
-    function displayHefe($db, $name) {
-        $query = 'SELECT * FROM Hefe WHERE Beschreibung = "' . $name . '"';
-        $result = $db->query($query);
-        if ($result) {
-            while ($row = $result->fetchArray()) {
-                $ret = $row["Beschreibung"];
-                if (strlen($row["Link"]) >= 1) {
-                    $ret = '<a href="' . $row["Link"] . '">' . $ret . '</a>';
-                }
-                if ($row["TypOGUG"] == 1) {
-                    $ret .= ", obergärig";
-                } else {
-                    $ret .= ", untergärig";
-                }
-                if ($row["TypTrFl"] == 1) {
-                    $ret .= ", trocken";
-                } else {
-                    $ret .= ", flüssig";
-                }
-                if ($row["SED"] == 1) {
-                    $ret .= ", Sedimentierung hoch";
-                } elseif ($row["SED"] == 2) {
-                    $ret .= ", Sedimentierung mittel";
-                } elseif ($row["SED"] == 3) {
-                    $ret .= ", Sedimentierung gering";
-                }
-                if ($row["EVG"] > 0) {
-                    $ret .= ", Endvergärungsgrad " . $row["EVG"];
-                }
-                if ($row["Temperatur"]) {
-                    $ret .= ", " . $row["Temperatur"];
-                }
-            }
-        } else {
-	        $ret = $name;
-        }
-        return $ret;
-    }
-
-
-
-    function displayHefeMenge($db, $name) {			
-        $query = 'SELECT * FROM Hefe WHERE Beschreibung = "' . $name . '"';
-        $result = $db->query($query);
-        if ($result) {
-            while ($row = $result->fetchArray()) {
-                $ret = $row["Verpackungsmenge"];
-            }
-        } else {
-	        $ret = "Päckchen";
-        }
-        return $ret;
     }
 
 
@@ -1840,7 +1728,8 @@ class WP_Brewing {
                 "ibu" => $Sud["IBU"], // IBU
                 "ebc" => $Sud["erg_Farbe"], // EBC
                 "calories" => $kcal > 0 ? $kcal : null, // kcal/100ml
-                "planned_co2" => str_replace(",", ".", preg_replace("~[^0-9.,]~i", "", $this->extractText($Sud["Kommentar"], "CO2", null))), // g/l
+                //"planned_co2" => str_replace(",", ".", preg_replace("~[^0-9.,]~i", "", $this->extractText($Sud["Kommentar"], "CO2", null))), // g/l
+                "planned_co2" => str_replace(",", ".", preg_replace("~[^0-9.,]~i", "", $Sud["CO2"])), // g/l
                 "co2" => $co2 > 0 ? $co2 : null, // CO2 g/l
                 "drink_temp" => str_replace(",", ".", preg_replace("~[^0-9.,]~i", "", $this->extractText($Sud["Kommentar"], "Trinktemperatur", null))), // °C
                 "song" => $this->extractText($Sud["Kommentar"], "Song", null), // "Song zum Bier" :-) (free text)
@@ -1995,7 +1884,7 @@ class WP_Brewing {
                 $result = $db->query($query);
                 $url = null;
                 $type = null;
-                $time = $hopfen["Zugabedauer"];
+                $time = $adjunct["Zugabedauer"];
                 if ($time >= 1440) {
                     $time = $time / 1440;
                 } elseif ($time == 0) {
@@ -2149,18 +2038,75 @@ class WP_Brewing {
 
         $att = shortcode_atts (array(
             'mode' => null,
-            'select' => null
+            'year' => null
         ), $atts);
-        if ($att['select']) {
-            $where = " WHERE " . $att['select'];
+
+        return $this->kbh_process_table($att["mode"], $att["year"]);
+    }
+
+
+
+    function zahlWort($int) {
+        $int = (string)(int)$int;
+        $z2w = array('null'=>'null', 'und'=>'und',
+                     1=>array('ein','ein','zwei','drei','vier','fünf','sechs','sieben','acht','neun','zehn',
+                              'elf','zwölf','dreizehn','vierzehn','fünfzehn','sechzehn','siebzehn','achtzehn','neunzehn'),
+                     2=>array('zwanzig','dreissig','vierzig','fünfzig','sechzig', 'siebzig','achtzig','neunzig'),
+                     3=>array('hundert','tausend')
+        );
+        $intrev = strrev($int);
+        $len = strlen($intrev); // Stellen
+        $zif = str_split($intrev); // Ziffern
+        $zif = array_map('intval', $zif);
+        $wort = '';
+  
+        if($len===1){ # Einstellige Zahl
+            if($zif[0]===0) $wort .= $z2w['null']; // 0
+            elseif($zif[0]===1) $wort .= $z2w[1][0]; // 1
+            else $wort .= $z2w[1][$zif[0]]; // 2 bis 9
+        }
+        elseif($len===2){ # Zweistellige Zahl
+            if($zif[1]===1) $wort .= $z2w[1][$zif[0]+10]; // 10 bis 19
+            elseif($zif[1]>=2 & $zif[0]!==0) $wort .= $z2w[1][$zif[0]].$z2w['und']; // [2-9][1-9]
+            if($zif[1]>=2) $wort .= $z2w[2][$zif[1]-2]; // 20 bis 99
+        }
+        elseif($len===3){ # Dreistellige Zahl
+            $wort .= $z2w[1][$zif[2]].$z2w[3][0]; // 100 bis 999
+            if($zif[1]===0 & $zif[0]==1) $wort .= $z2w[1][0]; // n01
+            elseif($zif[1]===0 & $zif[0]!==0) $wort .= $z2w[1][$zif[0]]; // n02 bis n09
+            elseif($zif[1]===1) $wort .= $z2w[1][$zif[0]+10]; // n10 bis n19
+            elseif($zif[1]>=2 & $zif[0]!=0) $wort .= $z2w[1][$zif[0]].$z2w['und']; // n[2-9][1-9]
+            if($zif[1]>=2) $wort .= $z2w[2][$zif[1]-2]; // n20 bis n99
+        }
+        elseif($len===4){ # Vierstellige Zahl
+            $wort .= $z2w[1][$zif[3]].$z2w[3][1]; // 1000 bis 9999
+            if($zif[2]!==0) $wort .= $z2w[1][$zif[2]].$z2w[3][0]; // n100 bis n999
+            elseif($zif[1]!==0 || $zif[0]!==0) $wort .= $z2w['und']; // n0[1-9][1-9]
+            if($zif[1]===0 & $zif[0]===1) $wort .= $z2w[1][0]; // nn01
+            elseif($zif[1]===0 & $zif[0]!==0) $wort .= $z2w[1][$zif[0]]; // nn02 bis nn09
+            elseif($zif[1]===1) $wort .= $z2w[1][$zif[0]+10]; // nn10 bis nn19
+            elseif($zif[1]>=2 & $zif[0]!==0) $wort .= $z2w[1][$zif[0]].$z2w['und']; // nn[2-9][1-9]
+            if($zif[1]>=2) $wort .= $z2w[2][$zif[1]-2]; // nn20 bis nn99
+        }
+  
+        return $wort;        
+    }
+
+
+    
+    function kbh_process_table($mode, $year) {
+        
+        $content = "";
+
+        if ($year) {
+            $where = ' WHERE strftime("%Y",Braudatum) = "' . $year . '" AND BierWurdeGebraut = 1';
         } else {
             $where = "";
         }
-
-
+        
         $location = get_option('wp_brewing_kbh_location', '/root/.kleiner-brauhelfer/kb_daten.sqlite');
         $category = get_option('wp_brewing_category', 'Sude');
-
+        
         $cache = get_option('kleiner_brauhelfer_cache', 3600);
         if (strpos($location, '//') !== false) {
             $path = get_temp_dir() . "/wp-brewing-kbh.sqlite";
@@ -2189,15 +2135,16 @@ class WP_Brewing {
             $post = [ "title" => get_the_title(), "url" => get_post_permalink() ];
             array_push($posts, $post);
         }
-        $content .= '
+        if ($mode != "xml") {
+            $content .= '
     <table class="xsud">
       <style type="text/css">
 	table.xsud tr th { background:white; color:#333; padding-left:4px; width:80% }
 	table.xsud tr th+th { background:white; color:#333; width:20%; text-align:right; padding-right:4px }
 	table.xsud tr td+td { text-align:right; }
       </style>';
-        if ($att["mode"] == "steuer") {
-            $content .= '
+            if ($mode == "steuer") {
+                $content .= '
       <tr>
         <th>Datum</th>
         <th>°P</th>
@@ -2206,20 +2153,62 @@ class WP_Brewing {
         <th>hl</th>
         <th>€</th>
       </tr>';
-        } else {
-            $content .= '
+            } else {
+                $content .= '
       <tr>
         <th>Bezeichnung</th>
         <th>Datum</th>
       </tr>';
+            }
+        } else {
+            $content = $this->formatString('<?xml version="1.0" encoding="UTF-8"?>
+<xml-data xmlns="http://www.lucom.com/ffw/xml-data-1.0.xsd">
+    <form>catalog://Unternehmen/vst/bier/2075</form>
+    <instance>
+        <datarow>
+            <element id="ID_USER">.anonymous</element>
+            <element id="name_firma">{name_firma}</element>
+            <element id="strasse_nr">{strasse_nr}</element>
+            <element id="plz_ort">{plz_ort}</element>
+            <element id="ansprechpartner">{ansprechpartner}</element>
+            <element id="telefon">{telefon}</element>
+            <element id="email">{email}</element>
+            <element id="hza">{hza}</element>
+            <element id="hza_anschrift">{hza_anschrift}</element>
+            <element id="steuerlagennummer">{steuerlagernummer}</element>
+            <element id="k1">false</element>
+            <element id="k2">false</element>
+            <element id="k3">false</element>
+            <element id="k4">false</element>
+            <element id="k5">false</element>
+            <element id="k6">false</element>
+            <element id="k7">false</element>
+            <element id="k8">false</element>
+            <element id="k9">false</element>
+            <element id="k10">false</element>
+            <element id="k11">false</element>
+            <element id="k12">true</element>
+            <element id="k14">false</element>
+            <element id="k15">false</element>', [
+                'name_firma' => str_replace(', ', "\n", get_option('wp_brewing_2075_name_firma', '')),
+                'strasse_nr' => current_user_can('administrator') ? get_option('wp_brewing_2075_strasse_nr', '') : "",
+                'plz_ort' => current_user_can('administrator') ? get_option('wp_brewing_2075_plz_ort', '') : "",
+                'ansprechpartner' => get_option('wp_brewing_2075_ansprechpartner', ''),
+                'telefon' => current_user_can('administrator') ? get_option('wp_brewing_2075_telefon', '') : "",
+                'email' => current_user_can('administrator') ? get_option('wp_brewing_2075_email', '') : "",
+                'hza' => get_option('wp_brewing_2075_hza', ''),
+                'hza_anschrift' => str_replace(', ', "\n", get_option('wp_brewing_2075_hza_anschrift', '')),
+                'steuerlagernummer' => current_user_can('administrator') ? get_option('wp_brewing_2075_steuerlagernummer', '') : ""
+            ]);
         }
         $gesamtbetrag = 0;
+        $n = 0;
         while ($Sud = $dbsude->fetchArray()) {
             if ($Sud["SW"] >= 5) {
 		        $m = $Sud["BierWurdeAbgefuellt"] ? $Sud["erg_AbgefuellteBiermenge"] : $Sud["Menge"];
                 $Gesamt += $m;
             }
-            if ($Gesamt <= 200 && $att["mode"] == "steuer") {
+            if ($Gesamt <= 200 && (($mode == "steuer") || ($mode == "xml"))) {
                 continue;
             }
             /* find best matching WP post by comparing title prefix lengths */
@@ -2235,14 +2224,16 @@ class WP_Brewing {
                     }
                 }
             }
-            if ($att["mode"] == "steuer") {
+            if (($mode == "steuer") || ($mode == "xml")) {
+                $n += 1;
 		        $steuersatz = 0.4407;
 		        $swfloor = $Sud["BierWurdeGebraut"] ? floor($Sud["SWAnstellen"]) : floor($Sud["SW"]);
                 $litersatz = floor($steuersatz * $swfloor * 100) / 100;
                 $mengehl = floor($m) / 100;
                 $betrag = floor($mengehl * $litersatz * 100) / 100;
                 $gesamtbetrag += $betrag;
-		        $content .= $this->formatString('
+                if ($mode != "xml") {
+                    $content .= $this->formatString('
         <tr>
           <td><a href="{href}">{Braudatum}</a></td>
           <td>{Stammwuerze}</td>
@@ -2260,6 +2251,22 @@ class WP_Brewing {
 			'Menge' => number_format($mengehl, 2, ",", "."),
 			'Betrag' => number_format($betrag, 2, ",", "."),
         ]);
+                } else {
+                    $content .= $this->formatString('
+            <element id="steuerklasse{n}">{plato}</element>
+            <element id="steuersatz{n}">{steuersatz}</element>
+            <element id="steuerbetrag{nhack}">{steuerbetrag}</element>
+            <element id="versteuerung{n}">{versteuerung}</element>
+            <element id="betrag{n}">{betrag}</element>', [
+                'n' => $n,
+                'nhack' => $n <= 1 ? $n : $n + 20,
+                'plato' => $swfloor,
+                'steuersatz' => number_format($steuersatz, 4, ".", ","),
+                'steuerbetrag' => number_format($litersatz, 2, ".", ","),
+                'versteuerung' => number_format($mengehl, 2, ".", ","),
+                'betrag' => number_format($betrag, 2, ".", ","),
+            ]);
+                }
 	        } else {
 		        $content .= $this->formatString('
         <tr>
@@ -2272,29 +2279,61 @@ class WP_Brewing {
         ]);
             }
         }
-        if ($att["mode"] == "steuer") {
+        if ($mode == "steuer") {
             $content .= $this->formatString('
         <tr>
           <td colspan="5">Zu entrichtende Steuer</td>
           <td>{Summe}</td>
         </tr>
+        <tr>
+          <td colspan="6">Diese Daten können als <a href="{url}">XML-Datei</a> heruntergeladen werden, um sie in ein <a href="https://www.formulare-bfinv.de/ffw/action/invoke.do?id=2075">Online-Steuerformular 2075</a> hochzuladen und auszudrucken.</td>
+        </tr>
       </table>', [
           'Summe' => number_format($gesamtbetrag, 2, ",", "."),
+          'url' => "?download_2075=" . $year
       ]);
-        } else {
+        } elseif ($mode != "xml") {
             $content .= '
       <tr>
         <td colspan="2" style="font-size:10pt; text-align:center">Rezepte erstellt mit dem <a href="http://www.joerum.de/kleiner-brauhelfer/doku.php">Kleinen Brauhelfer</a><xsl:text> </xsl:text><xsl:value-of select="Version/kleiner-brauhelfer"/>.</td>
       </tr>
     </table>';
+        } else {
+            $content .= $this->formatString('
+            <element id="betrag23">{summe}</element>
+            <element id="euroInBuchstaben">{wort}</element>
+        </datarow>
+    </instance>
+</xml-data>', [
+    'summe' => number_format($gesamtbetrag, 2, ".", ","),
+    'wort' => "--- " . $this->zahlWort(floor($gesamtbetrag)) . " ---"
+]);
         }
         $db->close();
+        
         return $content;
 
     }
 
 
 
+    function kbh_send_2075($year) {
+
+        $filename = "Formular-2075-" . $year;
+
+        header("Expires: 0");
+        header("Cache-Control: no-cache, no-store, must-revalidate");
+        header("Pragma: no-cache");	
+        header("Content-type: application/xml");
+        header("Content-Disposition:attachment; filename={$filename}");
+
+        echo $this->kbh_process_table("xml", $year);
+
+        exit();
+    }
+    
+
+    
     function bs_recipe_shortcode($atts) {
 
     	$a = shortcode_atts (array(
@@ -2353,16 +2392,11 @@ class WP_Brewing {
             
         }
 
- 
-
-
-
-        
         return "-" . $content;
     }
 
 
-    
+
     function bs_recipes_shortcode($atts) {
 
         $att = shortcode_atts (array(
@@ -2415,19 +2449,21 @@ class WP_Brewing {
     function bjcp_style_shortcode($atts) {
         
         $att = shortcode_atts (array(
-            'name' => null,
+            'class' => null,
+            'category' => null,
+            'subcategory' => null,
+            'specialty' => null,
             'id' => null
         ), $atts);
-        $param = $att["id"];
-        if (! $param) {
-            $param = $att["name"];
-        }
+        if ($att["class"]) { $param = $att["class"]; }
+        elseif ($att["category"]) { $param = $att["category"]; }
+        elseif ($att["subcategory"]) { $param = $att["subcategory"]; }
+        elseif ($att["specialty"]) { $param = $att["specialty"]; }
         return $this->renderStyle($param);
         
     }
     
 }
-
 
 
 
