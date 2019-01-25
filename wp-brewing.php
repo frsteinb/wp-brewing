@@ -612,7 +612,33 @@ class WP_Brewing {
     }
 
 
+
+    function statusWord($status) {
+        switch($status) {
+        case STATUS_PREPARING: $value = "in Vorbereitung"; break;
+        case STATUS_BREWDAY: $value = "Brautag"; break;
+        case STATUS_BREWDAY_CRUSHING: $value = "Schroten"; break;
+        case STATUS_BREWDAY_MASHING: $value = "Maischen"; break;
+        case STATUS_BREWDAY_BOILING: $value = "Würzekochen"; break;
+        case STATUS_BREWDAY_COOLING: $value = "Hopfenseihen"; break;
+        case STATUS_FERMENTATION: $value = "in Gärung"; break;
+        case STATUS_FERMENTATION_LAG: $value = "Gärung (Lag Phase)"; break;
+        case STATUS_FERMENTATION_GROWTH: $value = "Gärung (Vermehrung)"; break;
+        case STATUS_FERMENTATION_STATIONARY: $value = "Gärung (stationär)"; break;
+        case STATUS_FERMENTATION_SECONDARY: $value = "Nachgärung"; break;
+        case STATUS_BOTTLED: $value = "abgefüllt"; break;
+        case STATUS_CONDITIONING: $value = "in Reifung"; break;
+        case STATUS_COMPLETE: $value = "trinkfertig"; break;
+        case STATUS_CONSUMING: $value = "wird kunsumiert"; break;
+        case STATUS_EMPTIED: $value = "leer"; break;
+        case STATUS_DUMPED: $value = "entsorgt"; break;
+        default: $value = "undefiniert";
+        }
+        return $value;
+    }
+
     
+
     function renderRecipe($recipe) {
         
         $content .= $this->formatString(
@@ -620,7 +646,6 @@ class WP_Brewing {
                <style type="text/css">
 
                  table.wp-brewing-recipe { font-size:11pt; }
-
 
                  table.wp-brewing-recipe tr th { background:white; color:#333 }
 
@@ -674,26 +699,7 @@ class WP_Brewing {
         }
         
         if ($recipe["status"] > 0) {
-            switch($recipe["status"]) {
-            case STATUS_PREPARING: $value = "in Vorbereitung"; break;
-            case STATUS_BREWDAY: $value = "Brautag"; break;
-            case STATUS_BREWDAY_CRUSHING: $value = "Schroten"; break;
-            case STATUS_BREWDAY_MASHING: $value = "Maischen"; break;
-            case STATUS_BREWDAY_BOILING: $value = "Würzekochen"; break;
-            case STATUS_BREWDAY_COOLING: $value = "Hopfenseihen"; break;
-            case STATUS_FERMENTATION: $value = "in Gärung"; break;
-            case STATUS_FERMENTATION_LAG: $value = "Gärung (Lag Phase)"; break;
-            case STATUS_FERMENTATION_GROWTH: $value = "Gärung (Vermehrung)"; break;
-            case STATUS_FERMENTATION_STATIONARY: $value = "Gärung (stationär)"; break;
-            case STATUS_FERMENTATION_SECONDARY: $value = "Nachgärung"; break;
-            case STATUS_BOTTLED: $value = "abgefüllt"; break;
-            case STATUS_CONDITIONING: $value = "in Reifung"; break;
-            case STATUS_COMPLETE: $value = "trinkfertig"; break;
-            case STATUS_CONSUMING: $value = "wird kunsumiert"; break;
-            case STATUS_EMPTIED: $value = "leer"; break;
-            case STATUS_DUMPED: $value = "entsorgt"; break;
-            default: $value = "undefiniert";
-            }
+            $value = $this->statusWord($recipe["status"]);
             $content .= $this->formatString(
                 '<tr>
                    <td>Status</td>
@@ -1323,7 +1329,8 @@ class WP_Brewing {
                         'temp_range' => $temp_range,
                         'attenuation' => number_format($y["attenuation"], 0, ",", "."),
                         'amount' => $y["amount"],
-                        'unit' => ($y["unit"] == "packets") && ($y["amount"] == 1) ? "packet" : $y["unit"]
+                        //'unit' => ($y["unit"] == "packets") && ($y["amount"] == 1) ? "packet" : $y["unit"]
+                        'unit' => ($y["unit"] == "packets") ? "Päckchen" : $y["unit"]
                     ]);
             }
         }
@@ -1418,7 +1425,39 @@ class WP_Brewing {
                     'dose' => $dose
                 ]);
 		}
-            
+
+        foreach ($recipe["adjuncts"] as $a) {
+            if (($a["usage"] < USAGE_PRIMARY) || ($a["usage"] > USAGE_BOTTLE)) continue;
+            $rendered_name = $a["name"];
+            if (strlen($a["url"]) >= 1) {
+                $rendered_name = '<a href="' . $a["url"] . '">' . $rendered_name . '</a>';
+            }
+            $rendered_time = "";
+            switch ($a["usage"]) {
+            case USAGE_PRIMARY: $rendered_time = "Hauptgärung"; break;
+            case USAGE_SECONDARY: $rendered_time = "Nachgärung"; break;
+            case USAGE_KEG: $rendered_time = "Fass"; break;
+            case USAGE_BOTTLE: $rendered_time = "Flasche"; break;
+            default: $rendered_time = "(?)";
+            }
+            $unit = $a["unit"];
+            $amount = number_format($a["amount"], 0, ",", ".");
+            $dose = number_format($a["amount"] / $recipe["planned_batch_volume"], 3, ",", ".") . " " . $unit . "/l";
+            $content .= $this->formatString(
+                '<tr>
+                       <td>{rendered_name}, {dose}</td>
+                       <td>{amount} {unit}</td>
+                       <td>{rendered_time}</td>
+                     </tr>',
+                [
+                    'rendered_name' => $rendered_name,
+                    'dose' => $dose,
+                    'amount' => number_format($a["amount"], ($unit == "g" ? 0 : 3), ",", "."),
+                    'unit' => $unit,
+                    'rendered_time' => $rendered_time
+                ]);
+        }
+
         if ($recipe["fg"] || $recipe["current_g"]) {
             $tt = null;
             if ($recipe["og"] && $recipe["current_g"]) {
@@ -1755,7 +1794,7 @@ class WP_Brewing {
                 "adjuncts" => [],
                 "yeasts" => [],
                 "fermentation_steps" => [],
-                "status" => ($Sud["BierWurdeGebraut"]) ? (($Sud["BierWurdeVerbraucht"]) ? STATUS_EMPTIED : (($Sud["BierWurdeAbgefuellt"]) ? STATUS_BOTTLED : STATUS_FERMENTATION)) : ($this->localToUtc($Sud["Braudatum"] == date("o-m-d") ? STATUS_BREWDAY : STATUS_PREPARING))
+                "status" => ($Sud["BierWurdeGebraut"]) ? (($Sud["BierWurdeVerbraucht"]) ? STATUS_EMPTIED : (($Sud["BierWurdeAbgefuellt"]) ? (       (date_add(new DateTime($this->renderDate($this->localToUtc($Sud["Abfuelldatum"]))), new DateInterval('P' . 7 * $Sud["Reifezeit"] . 'D'))->format("Y-m-d") < date("o-m-d"))       ? STATUS_COMPLETE : STATUS_CONDITIONING) : STATUS_FERMENTATION)) : ($this->localToUtc($Sud["Braudatum"] == date("o-m-d") ? STATUS_BREWDAY : STATUS_PREPARING))
                 // "estimated_attenuation"  // should be calculated (or just copied from yeast?)
                 // "attenuation"  // should be calculated from og and fg
             ];
@@ -2137,11 +2176,17 @@ class WP_Brewing {
         }
         if ($mode != "xml") {
             $content .= '
-    <table class="xsud">
+    <table class="wp-brewing-recipes">
       <style type="text/css">
-	table.xsud tr th { background:white; color:#333; padding-left:4px; width:80% }
-	table.xsud tr th+th { background:white; color:#333; width:20%; text-align:right; padding-right:4px }
-	table.xsud tr td+td { text-align:right; }
+        table.wp-brewing-recipes { font-size:11pt; }
+        table.wp-brewing-recipes tr th { background:white; color:#333; padding-left:4px; width:60% }
+        table.wp-brewing-recipes tr th+th { background:white; color:#333; width:20%; text-align:center; padding-right:4px }
+        table.wp-brewing-recipes tr th+th+th { background:white; color:#333; width:25%; text-align:right; padding-right:4px }
+        table.wp-brewing-recipes tr td+td { text-align:center; }
+        table.wp-brewing-recipes tr td+td+td { text-align:right; width:25%; }
+        /* fix glossary link color on white heading line */
+        table.wp-brewing-recipes tr th a.glossaryLink { color:#333 }
+        table.wp-brewing-recipes tr th a.glossaryLink:hover { color:#333 }
       </style>';
             if ($mode == "steuer") {
                 $content .= '
@@ -2157,6 +2202,7 @@ class WP_Brewing {
                 $content .= '
       <tr>
         <th>Bezeichnung</th>
+        <th>Status</th>
         <th>Datum</th>
       </tr>';
             }
@@ -2232,27 +2278,28 @@ class WP_Brewing {
                 $mengehl = floor($m) / 100;
                 $betrag = floor($mengehl * $litersatz * 100) / 100;
                 $gesamtbetrag += $betrag;
-                if ($mode != "xml") {
-                    $content .= $this->formatString('
+                if ($swfloor >= 1.0) {
+                    if ($mode != "xml") {
+                        $content .= $this->formatString('
         <tr>
           <td><a href="{href}">{Braudatum}</a></td>
           <td>{Stammwuerze}</td>
-	  <td>{Steuersatz}</td>
-	  <td>{Litersatz}</td>
+          <td>{Steuersatz}</td>
+          <td>{Litersatz}</td>
           <td>{Menge}</td>
           <td>{Betrag}</td>
         </tr>', [
-			'href' => $href,
-			'Sudname' => $Sud["Sudname"],
-			'Braudatum' => $Sud["Braudatum"],
-			'Stammwuerze' => $swfloor,
-			'Steuersatz' => number_format($steuersatz, 4, ",", "."),
-			'Litersatz' => number_format($litersatz, 2, ",", "."),
-			'Menge' => number_format($mengehl, 2, ",", "."),
-			'Betrag' => number_format($betrag, 2, ",", "."),
+            'href' => $href,
+            'Sudname' => $Sud["Sudname"],
+            'Braudatum' => $Sud["Braudatum"],
+            'Stammwuerze' => $swfloor,
+            'Steuersatz' => number_format($steuersatz, 4, ",", "."),
+            'Litersatz' => number_format($litersatz, 2, ",", "."),
+            'Menge' => number_format($mengehl, 2, ",", "."),
+            'Betrag' => number_format($betrag, 2, ",", "."),
         ]);
-                } else {
-                    $content .= $this->formatString('
+                    } else {
+                        $content .= $this->formatString('
             <element id="steuerklasse{n}">{plato}</element>
             <element id="steuersatz{n}">{steuersatz}</element>
             <element id="steuerbetrag{nhack}">{steuerbetrag}</element>
@@ -2266,15 +2313,20 @@ class WP_Brewing {
                 'versteuerung' => number_format($mengehl, 2, ".", ","),
                 'betrag' => number_format($betrag, 2, ".", ","),
             ]);
+                    }
                 }
 	        } else {
+                $status = ($Sud["BierWurdeGebraut"]) ? (($Sud["BierWurdeVerbraucht"]) ? STATUS_EMPTIED : (($Sud["BierWurdeAbgefuellt"]) ? (       (date_add(new DateTime($this->renderDate($this->localToUtc($Sud["Abfuelldatum"]))), new DateInterval('P' . 7 * $Sud["Reifezeit"] . 'D'))->format("Y-m-d") < date("o-m-d"))       ? STATUS_COMPLETE : STATUS_CONDITIONING) : STATUS_FERMENTATION)) : ($this->localToUtc($Sud["Braudatum"] == date("o-m-d") ? STATUS_BREWDAY : STATUS_PREPARING));
+                $status = $this->statusWord($status);
 		        $content .= $this->formatString('
         <tr>
           <td><a href="{href}">{Sudname}</a></td>
+          <td>{Status}</td>
           <td>{Braudatum}</td>
         </tr>', [
 			'href' => $href,
 			'Sudname' => $Sud["Sudname"],
+			'Status' => $status,
 			'Braudatum' => $Sud["Braudatum"]
         ]);
             }
