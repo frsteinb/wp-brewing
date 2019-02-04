@@ -3,7 +3,7 @@
 /**
  * Plugin Name:       WP Brewing
  * Plugin URI:        https://frankensteiner.familie-steinberg.org/wp-brewing/
- * Description:       Embed brew recipes and other data from "BeerSmith" or "Kleiner Brauhelfer" into posts and pages.
+ * Description:       Embed brew recipes and other data from "Kleiner Brauhelfer" or "BeerSmith" into posts and pages.
  * Version:           0.0.1
  * Author:            Frank Steinberg
  * Author URI:        https://frankensteiner.familie-steinberg.org/
@@ -11,6 +11,9 @@
  * License URI:       http://www.gnu.org/licenses/gpl-3.0.txt
  * Text Domain:       wp-brewing
  * Domain Path:       /languages
+ *
+ * Please note that this peace of software is far from being complete, stable and well documented.
+ * Use at your own risk.
  */
 
 
@@ -2163,7 +2166,7 @@ class WP_Brewing {
 
         $db = new SQLite3($location);
 
-        $query = "SELECT * FROM Sud" . $where . " ORDER BY Braudatum";
+        $query = "SELECT * FROM Sud" . $where . " ORDER BY Braudatum" . ((($mode == "xml") || ($mode == "steuer")) ? "" : " DESC");
         $dbsude = $db->query($query);
         $query = new WP_Query( array(
             'posts_per_page' => 1000,
