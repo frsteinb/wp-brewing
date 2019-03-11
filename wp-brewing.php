@@ -134,6 +134,27 @@ class WP_Brewing {
 
 
 
+    function getKbhLocation() {
+    	$location = get_option('wp_brewing_kbh_location', '/root/.kleiner-brauhelfer/kb_daten.sqlite');
+    	$cache = get_option('wp_brewing_kbh_cache', 3600);
+    	if (strpos($location, '//') !== false) {
+            $path = get_temp_dir() . "/wp-brewing-kbh.sqlite";
+            if ((!file_exists($path)) || (time()-filemtime($path) > $cache)) {
+                $response = wp_remote_get($location);
+                if (is_array($response)) {
+                    $data = $response['body'];
+                    file_put_contents($path, $data);
+                } else {
+                    return '[embedding recipe failed.] <!-- could not load KBH DB from ' . $location . ' -->';
+                }
+            }
+            $location = $path;
+    	}
+        return $location;
+    }
+
+    
+
     function calcBarAtC($co2, $temp) {
         // formula from from KBH source code
         return $co2 / ((pow(2.71828182845904, (-10.73797 + (2617.25 / ($temp + 273.15))))) * 10) - 1.013;
@@ -1657,22 +1678,8 @@ class WP_Brewing {
     	if ($a['title']) {
     		$select = "Sudname LIKE '" . $a['title'] . "'";
     	}
-        
-    	$location = get_option('wp_brewing_kbh_location', '/root/.kleiner-brauhelfer/kb_daten.sqlite');
-    	$cache = get_option('wp_brewing_kbh_cache', 3600);
-    	if (strpos($location, '//') !== false) {
-    	  $path = get_temp_dir() . "/wp-brewing-kbh.sqlite";
-              if ((!file_exists($path)) || (time()-filemtime($location) > $cache)) {
-      	    $response = wp_remote_get($location);
-     	    if (is_array($response)) {
-    	      $data = $response['body'];
-    	      file_put_contents($path, $data);
-    	      $location = $path;
-    	    } else {
-    	      return '[embedding recipe failed.] <!-- could not load KBH DB from ' . $location . ' -->';
-                }
-              }
-    	}
+
+        $location = $this->getKbhLocation();
 
     	$db = new SQLite3($location);
 
@@ -2186,23 +2193,9 @@ class WP_Brewing {
             $where = "";
         }
         
-        $location = get_option('wp_brewing_kbh_location', '/root/.kleiner-brauhelfer/kb_daten.sqlite');
         $category = get_option('wp_brewing_category', 'Sude');
         
-        $cache = get_option('kleiner_brauhelfer_cache', 3600);
-        if (strpos($location, '//') !== false) {
-            $path = get_temp_dir() . "/wp-brewing-kbh.sqlite";
-            if ((!file_exists($path)) || (time()-filemtime($location) > $cache)) {
-                $response = wp_remote_get($location);
-                if (is_array($response)) {
-                    $data = $response['body'];
-                    file_put_contents($path, $data);
-                    $location = $path;
-                } else {
-                    return '[embedding recipe failed.] <!-- could not load KBH DB from ' . $location . ' -->';
-                }
-            }
-        }
+        $location = $this->getKbhLocation();
 
         $db = new SQLite3($location);
 
