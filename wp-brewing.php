@@ -18,57 +18,57 @@
 
 
 
-define(RECIPE_TYPE_ALLGRAIN, 1);
-define(RECIPE_TYPE_EXTRACT, 2);
-define(RECIPE_TYPE_BIAB, 3);
+define("RECIPE_TYPE_ALLGRAIN", 1);
+define("RECIPE_TYPE_EXTRACT", 2);
+define("RECIPE_TYPE_BIAB", 3);
 
 // note: order matters!
-define(USAGE_MASH, 1);
-define(USAGE_FIRSTWORT, 2);
-define(USAGE_SPARGE, 3);
-define(USAGE_EXTRACT, 4);
-define(USAGE_STEEP, 5);
-define(USAGE_BOIL, 6);
-define(USAGE_FLAMEOUT, 7);
-define(USAGE_WHIRLPOOL, 8);
-define(USAGE_PRIMARY, 9);
-define(USAGE_SECONDARY, 10);
-define(USAGE_KEG, 11);
-define(USAGE_BOTTLE, 12);
+define("USAGE_MASH", 1);
+define("USAGE_FIRSTWORT", 2);
+define("USAGE_SPARGE", 3);
+define("USAGE_EXTRACT", 4);
+define("USAGE_STEEP", 5);
+define("USAGE_BOIL", 6);
+define("USAGE_FLAMEOUT", 7);
+define("USAGE_WHIRLPOOL", 8);
+define("USAGE_PRIMARY", 9);
+define("USAGE_SECONDARY", 10);
+define("USAGE_KEG", 11);
+define("USAGE_BOTTLE", 12);
 
-define(HOP_LEAF, 1);
-define(HOP_PELLET, 2);
-define(HOP_PLUG, 3);
-define(HOP_EXTRACT, 4);
+define("HOP_LEAF", 1);
+define("HOP_PELLET", 2);
+define("HOP_PLUG", 3);
+define("HOP_EXTRACT", 4);
 
 // note: order matters!
-define(STATUS_PREPARING, 10);
-define(STATUS_BREWDAY, 20);
-define(STATUS_BREWDAY_CRUSHING, 21);
-define(STATUS_BREWDAY_MASHING, 22);
-define(STATUS_BREWDAY_BOILING, 23);
-define(STATUS_BREWDAY_COOLING, 24);
-define(STATUS_FERMENTATION, 30);
-define(STATUS_FERMENTATION_LAG, 31);
-define(STATUS_FERMENTATION_GROWTH, 32);
-define(STATUS_FERMENTATION_STATIONARY, 33);
-define(STATUS_FERMENTATION_SECONDARY, 35);
-define(STATUS_BOTTLED, 40);
-define(STATUS_CONDITIONING, 50);
-define(STATUS_COMPLETE, 60);
-define(STATUS_CONSUMING, 65);
-define(STATUS_EMPTIED, 70);
-define(STATUS_DUMPED, 71);
+define("STATUS_PREPARING", 10);
+define("STATUS_BREWDAY", 20);
+define("STATUS_BREWDAY_CRUSHING", 21);
+define("STATUS_BREWDAY_MASHING", 22);
+define("STATUS_BREWDAY_BOILING", 23);
+define("STATUS_BREWDAY_COOLING", 24);
+define("STATUS_FERMENTATION", 30);
+define("STATUS_FERMENTATION_LAG", 31);
+define("STATUS_FERMENTATION_GROWTH", 32);
+define("STATUS_FERMENTATION_STATIONARY", 33);
+define("STATUS_FERMENTATION_SECONDARY", 35);
+define("STATUS_BOTTLED", 40);
+define("STATUS_CONDITIONING", 50);
+define("STATUS_COMPLETE", 60);
+define("STATUS_CONSUMING", 65);
+define("STATUS_EMPTIED", 70);
+define("STATUS_DUMPED", 71);
 
-define(YEAST_ALE, 1);
-define(YEAST_LAGER, 2);
+define("YEAST_ALE", 1);
+define("YEAST_LAGER", 2);
 
-define(YEAST_FORM_DRY, 1);
-define(YEAST_FORM_LIQUID, 2);
+define("YEAST_FORM_DRY", 1);
+define("YEAST_FORM_LIQUID", 2);
 
-define(FLOC_LOW, 1);
-define(FLOC_MEDIUM, 2);
-define(FLOC_HIGH, 3);
+define("FLOC_LOW", 1);
+define("FLOC_MEDIUM", 2);
+define("FLOC_HIGH", 3);
 
 
 
@@ -642,6 +642,103 @@ class WP_Brewing {
 
     
 
+    function renderHopsAndAdjuncts($recipe, $phase, $excludePhases) {
+
+        $content = "";
+        
+        foreach ($recipe["hops"] as $h) {
+            if (($h["usage"] < USAGE_PRIMARY) || ($h["usage"] > USAGE_BOTTLE)) continue;
+            $rendered_name = $h["name"];
+            if (strlen($h["url"]) >= 1) {
+                $rendered_name = '<a href="' . $h["url"] . '">' . $rendered_name . '</a>';
+            }
+            $rendered_type = "";
+            switch ($h["type"]) {
+            case HOP_LEAF: $rendered_type = ", Dolden"; break;
+            case HOP_PLUG: $rendered_type = ", Plugs"; break;
+            case HOP_PELLET: $rendered_type = ", Pellets"; break;
+            case HOP_EXTRACT: $rendered_type = ", Extrakt"; break;
+            default: $rendered_type = ", (?)";
+            }
+            $rendered_alpha = "";
+            /* Alpha not of interest here
+            if ($h["alpha"] > 0) {
+                $rendered_alpha = ", " . number_format($h["alpha"], 1, ",", ".") . " %α";
+            }
+            */
+            $rendered_time = "";
+            switch ($h["usage"]) {
+            case USAGE_PRIMARY: $rendered_time = "Hauptgärung"; break;
+            case USAGE_SECONDARY: $rendered_time = "Nachgärung"; break;
+            case USAGE_KEG: $rendered_time = "Fass"; break;
+            case USAGE_BOTTLE: $rendered_time = "Flasche"; break;
+            default: $rendered_time = "(?)";
+            }
+            $match = ((!$phase) || ($rendered_time == $phase)) && (! in_array($rendered_time, $excludePhases));
+            if ($h["time"] > 0) {
+                // $rendered_time .= ", " . $h["time"] . " Tage";
+                $rendered_time = $h["time"] . " Tage";
+            }
+            $dose = number_format($h["amount"] / $recipe["planned_batch_volume"], 1, ",", ".") . " g/l";
+            if ($match) {
+    			$content .= $this->formatString(
+                    '<tr>
+                       <td>{rendered_name}{rendered_type}{rendered_alpha}, {dose}</td>
+                       <td>{amount} g</td>
+                       <td>{rendered_time}</td>
+                     </tr>',
+                    [
+                        'rendered_name' => $rendered_name,
+                        'rendered_type' => $rendered_type,
+                        'rendered_alpha' => $rendered_alpha,
+                        'amount' => number_format($h["amount"], 0, ",", "."),
+                        'rendered_time' => $rendered_time,
+                        'dose' => $dose
+                    ]);
+            }
+		}
+
+        foreach ($recipe["adjuncts"] as $a) {
+            //if (($a["usage"] < USAGE_PRIMARY) || ($a["usage"] > USAGE_BOTTLE)) continue;
+            if ($h["usage"] != $usage) continue;
+            $rendered_name = $a["name"];
+            if (strlen($a["url"]) >= 1) {
+                $rendered_name = '<a href="' . $a["url"] . '">' . $rendered_name . '</a>';
+            }
+            $rendered_time = "";
+            switch ($a["usage"]) {
+            case USAGE_PRIMARY: $rendered_time = "Hauptgärung"; break;
+            case USAGE_SECONDARY: $rendered_time = "Nachgärung"; break;
+            case USAGE_KEG: $rendered_time = "Fass"; break;
+            case USAGE_BOTTLE: $rendered_time = "Flasche"; break;
+            default: $rendered_time = "(?)";
+            }
+            $match = ((!$phase) || ($rendered_time == $phase)) && (! in_array($rendered_time, $excludePhases));
+            $unit = $a["unit"];
+            $amount = number_format($a["amount"], 0, ",", ".");
+            $dose = number_format($a["amount"] / $recipe["planned_batch_volume"], 3, ",", ".") . " " . $unit . "/l";
+            if ($match) {
+                $content .= $this->formatString(
+                    '<tr>
+                           <td>{rendered_name}, {dose}</td>
+                           <td>{amount} {unit}</td>
+                           <td>{rendered_time}</td>
+                         </tr>',
+                    [
+                        'rendered_name' => $rendered_name,
+                        'dose' => $dose,
+                        'amount' => number_format($a["amount"], ($unit == "g" ? 0 : 3), ",", "."),
+                        'unit' => $unit,
+                        'rendered_time' => $rendered_time
+                    ]);
+            }
+        }
+
+        return $content;
+    }
+
+
+    
     function renderRecipe($recipe) {
         
         $content .= $this->formatString(
@@ -1252,7 +1349,7 @@ class WP_Brewing {
             if ((!$days) && ($recipe["fermentation_steps"][0]["planned_days"])) {
                 $state = $recipe["fermentation_steps"][0]["planned_days"] . " Tage";
             }
-            if (($recipe["status"] >= STATUS_FERMENTATION) && ($recipe["status"] < STATUS_SECONDARY)) {
+            if (($recipe["status"] >= STATUS_FERMENTATION) && ($recipe["status"] < STATUS_FERMENTATION_SECONDARY)) {
                 $d = date_diff(date_create($Sud["Anstelldatum"]), date_create());
                 $days = $d->format("%a");
                 $state = "bisher " . $days . " Tage";
@@ -1351,6 +1448,7 @@ class WP_Brewing {
         }
         
         $ferm_days = 0;
+        $excludePhases = array();
         if (count($recipe["fermentation_steps"]) >= 1) {
             foreach ($recipe["fermentation_steps"] as $f) {
                 $tt_days = null; $tt_temp = null; $days = null; $temp = null;
@@ -1389,90 +1487,14 @@ class WP_Brewing {
                         'tt_days' => $tt_days,
                         'tt_temp' => $tt_temp
                     ]);
+
+                $content .= $this->renderHopsAndAdjuncts($recipe, $f["name"], array());
+                array_push($excludePhases, $f["name"]);
             }
         }
 
-        foreach ($recipe["hops"] as $h) {
-            if (($h["usage"] < USAGE_PRIMARY) || ($h["usage"] > USAGE_BOTTLE)) continue;
-            $rendered_name = $h["name"];
-            if (strlen($h["url"]) >= 1) {
-                $rendered_name = '<a href="' . $h["url"] . '">' . $rendered_name . '</a>';
-            }
-            $rendered_type = "";
-            switch ($h["type"]) {
-            case HOP_LEAF: $rendered_type = ", Dolden"; break;
-            case HOP_PLUG: $rendered_type = ", Plugs"; break;
-            case HOP_PELLET: $rendered_type = ", Pellets"; break;
-            case HOP_EXTRACT: $rendered_type = ", Extrakt"; break;
-            default: $rendered_type = ", (?)";
-            }
-            $rendered_alpha = "";
-            /* Alpha not of interest here
-            if ($h["alpha"] > 0) {
-                $rendered_alpha = ", " . number_format($h["alpha"], 1, ",", ".") . " %α";
-            }
-            */
-            $rendered_time = "";
-            switch ($h["usage"]) {
-            case USAGE_PRIMARY: $rendered_time = "Hauptgärung"; break;
-            case USAGE_SECONDARY: $rendered_time = "Nachgärung"; break;
-            case USAGE_KEG: $rendered_time = "Fass"; break;
-            case USAGE_BOTTLE: $rendered_time = "Flasche"; break;
-            default: $rendered_time = "(?)";
-            }
-            if ($h["time"] > 0) {
-                // $rendered_time .= ", " . $h["time"] . " Tage";
-                $rendered_time = $h["time"] . " Tage";
-            }
-            $dose = number_format($h["amount"] / $recipe["planned_batch_volume"], 1, ",", ".") . " g/l";
-			$content .= $this->formatString(
-                '<tr>
-                   <td>{rendered_name}{rendered_type}{rendered_alpha}, {dose}</td>
-                   <td>{amount} g</td>
-                   <td>{rendered_time}</td>
-                 </tr>',
-                [
-                    'rendered_name' => $rendered_name,
-                    'rendered_type' => $rendered_type,
-                    'rendered_alpha' => $rendered_alpha,
-                    'amount' => number_format($h["amount"], 0, ",", "."),
-                    'rendered_time' => $rendered_time,
-                    'dose' => $dose
-                ]);
-		}
-
-        foreach ($recipe["adjuncts"] as $a) {
-            if (($a["usage"] < USAGE_PRIMARY) || ($a["usage"] > USAGE_BOTTLE)) continue;
-            $rendered_name = $a["name"];
-            if (strlen($a["url"]) >= 1) {
-                $rendered_name = '<a href="' . $a["url"] . '">' . $rendered_name . '</a>';
-            }
-            $rendered_time = "";
-            switch ($a["usage"]) {
-            case USAGE_PRIMARY: $rendered_time = "Hauptgärung"; break;
-            case USAGE_SECONDARY: $rendered_time = "Nachgärung"; break;
-            case USAGE_KEG: $rendered_time = "Fass"; break;
-            case USAGE_BOTTLE: $rendered_time = "Flasche"; break;
-            default: $rendered_time = "(?)";
-            }
-            $unit = $a["unit"];
-            $amount = number_format($a["amount"], 0, ",", ".");
-            $dose = number_format($a["amount"] / $recipe["planned_batch_volume"], 3, ",", ".") . " " . $unit . "/l";
-            $content .= $this->formatString(
-                '<tr>
-                       <td>{rendered_name}, {dose}</td>
-                       <td>{amount} {unit}</td>
-                       <td>{rendered_time}</td>
-                     </tr>',
-                [
-                    'rendered_name' => $rendered_name,
-                    'dose' => $dose,
-                    'amount' => number_format($a["amount"], ($unit == "g" ? 0 : 3), ",", "."),
-                    'unit' => $unit,
-                    'rendered_time' => $rendered_time
-                ]);
-        }
-
+        $content .= $this->renderHopsAndAdjuncts($recipe, null, $excludePhases);
+        
         if ($recipe["fg"] || $recipe["current_g"]) {
             $tt = null;
             if ($recipe["og"] && $recipe["current_g"]) {
