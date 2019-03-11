@@ -12,8 +12,8 @@
  * Text Domain:       wp-brewing
  * Domain Path:       /languages
  *
- * Please note that this peace of software is far from being complete, stable and well documented.
- * Use at your own risk.
+ * Please note that this peace of software is neither complete, nor stable or well documented. Use at your own risk.
+ *
  */
 
 
@@ -657,9 +657,9 @@ class WP_Brewing {
                  table.wp-brewing-recipe tr th a.glossaryLink:hover { color:#333 }
 
                  /* table.wp-brewing-recipe tr td { border:1px solid red } */
-                 table.wp-brewing-recipe tr th { padding-left:4px; width:70% }
-                 table.wp-brewing-recipe tr th+th { text-align:right }
-                 table.wp-brewing-recipe tr th+th[colspan] { width:30%; text-align:right; padding-right:4px }
+                 table.wp-brewing-recipe tr th { padding-left:4px; width:68% }
+                 table.wp-brewing-recipe tr th+th { text-align:right; width:14% }
+                 table.wp-brewing-recipe tr th+th[colspan] { width:32%; text-align:right; padding-right:4px }
                  table.wp-brewing-recipe tr th+th+th { padding-right:4px; width:18%; text-align:right }
                  table.wp-brewing-recipe tr th[colspan] { text-align:center }
                  table.wp-brewing-recipe tr th+th          { width:12% }
@@ -669,8 +669,8 @@ class WP_Brewing {
                  table.wp-brewing-recipe tr td[colspan] { text-align:center }
                  table.wp-brewing-recipe tr td+td { text-align:right }
 
-                 table.wp-brewing-recipe tr td+td[colspan] { width:30% }
-                 table.wp-brewing-recipe tr td+td          { width:12% }
+                 table.wp-brewing-recipe tr td+td[colspan] { width:32% }
+                 table.wp-brewing-recipe tr td+td          { width:14% }
                  table.wp-brewing-recipe tr td+td+td       { width:18% }
 
                  table.wp-brewing-recipe td span[data-cmtooltip] { color: #d0ffd0 }
@@ -840,7 +840,7 @@ class WP_Brewing {
         
         if ($recipe["abv"] or (($recipe["og"] or $recipe["planned_og"]) and ($recipe["fg"] or $recipe["current_g"] or $recipe["estimated_fg"]))) {
             $tt = null;
-            if ($this->calcAbv($recipe["og"], $recipe["current_g"])) {
+            if ((! $this->calcAbv($recipe["planned_og"], $recipe["estimated_fg"])) && (! $this->calcAbv($recipe["og"], $recipe["fg"])) && (! $this->calcAbv($recipe["og"], $recipe["fg"]))) {
                 $value = number_format($this->calcAbv($recipe["og"], $recipe["current_g"]), 1, ",", ".");
                 $label = "Bisheriger Alkohol";
                 $tt = $label . ": " . $value . " %vol, " . number_format($this->calcAbw($recipe["og"], $recipe["current_g"]), 1, ",", ".") . " %gew" . ($tt ? (",<br/>" . $tt) : "");
@@ -1020,6 +1020,17 @@ class WP_Brewing {
                 ]);
         }
 
+        if ($recipe["mash_ph"]) {
+            $content .= $this->formatString(
+                '<tr>
+                   <td>Maische pH-Wert</td>
+                   <td colspan="2">{ph}</td>
+                 </tr>',
+                [
+                    'ph' => number_format($recipe["mash_ph"], 1, ",", ".")
+                ]);
+        }
+        
         if ($recipe["mash_water_volume"]) {
             $content .= $this->formatString(
                 '<tr>
@@ -1202,7 +1213,8 @@ class WP_Brewing {
     			$content .= $this->formatString(
                     '<tr>
                        <td>Nachisomerisierung</td>
-                       <td colspan="2">{value} Minuten</td>
+                       <td></td>
+                       <td>{value} Minuten</td>
                      </tr>',
                     [
                         'value' => $recipe["post_boil_hot_time"]
@@ -1367,8 +1379,8 @@ class WP_Brewing {
                 $content .= $this->formatString(
                     '<tr>
                        <td>{name}</t>
-                       <td><span data-cmtooltip="{tt_days}">{days}</span></t>
                        <td><span data-cmtooltip="{tt_temp}">{temp}</span></t>
+                       <td><span data-cmtooltip="{tt_days}">{days}</span></t>
                      </tr>',
                     [
                         'name' => $f["name"],
@@ -1783,6 +1795,7 @@ class WP_Brewing {
                 "planned_residual_alkalinity" => $this->dhToPpm($Sud["RestalkalitaetSoll"]), // ppm
                 "mash_in_temp" => $Sud["EinmaischenTemp"], // °C
                 "mash_water_volume" => $Sud["erg_WHauptguss"], // l
+                "mash_ph" => str_replace(",", ".", preg_replace("~[^0-9.,]~i", "", $this->extractText($Sud["Kommentar"], "Maische-pH", null))),
                 "sparge_water_volume" => $Sud["erg_WNachguss"], // l
                 "boil_time" => $Sud["KochdauerNachBitterhopfung"], // min
                 "estimated_sudhausausbeute" => $estimated_sudhausausbeute > 0 ? $estimated_sudhausausbeute : null, // %
@@ -1958,16 +1971,21 @@ class WP_Brewing {
                         }
                     }
                 }
-                // TBD: $type = ...
-                array_push($recipe["adjuncts"], [
-                    "name" => $name,
-                    "url" => $url,
-                    "type" => $type,
-                    "usage" => $usage,
-                    "time" => $time,
-                    "amount" => $adjunct["erg_Menge"] * $unit_factor,
-                    "unit" => $unit
-                ]);
+                // these seem to hops, already stored to $recipe["hops"]
+                if (($adjunct["Typ"] == -1) or ($adjunct["Typ"] == 100)) {
+                    ;
+                } else {
+                    // TBD: $type = ...
+                    array_push($recipe["adjuncts"], [
+                        "name" => $name,
+                        "url" => $url,
+                        "type" => $type,
+                        "usage" => $usage,
+                        "time" => $time,
+                        "amount" => $adjunct["erg_Menge"] * $unit_factor,
+                        "unit" => $unit
+                    ]);
+                }
             }
             usort($recipe["adjuncts"], 'adjuncts_cmp');
 
