@@ -993,15 +993,15 @@ class WP_Brewing {
         if ($recipe["ibu"]) {
             $tt = "";
             if (($recipe["og"] || $recipe["planned_og"])) {
-                $value = ($recipe["ibu"] / $this->sgToPlato(($recipe["og"] ? $recipe["og"] : $recipe["planned_og"])) );
+                $value = $recipe["ibu"] / $this->sgToPlato(($recipe["og"] ? $recipe["og"] : $recipe["planned_og"]));
+                $bugu = $recipe["ibu"] / ((($recipe["og"] ? $recipe["og"] : $recipe["planned_og"]) - 1.0) * 1000.0);
                 if ($value < 1.5) { $descr = "sehr malzig"; }
                 elseif ($value < 2.0) { $descr = "malzig"; }
                 elseif ($value < 2.2) { $descr = "ausgewogen"; } // "mild bis ausgewogen"
                 elseif ($value < 3.0) { $descr = "herb"; }
                 elseif ($value < 6.0) { $descr = "sehr herb"; }
                 else { $descr = "Hopfenbombe"; }
-                
-                $tt = "IBU: " . number_format($recipe["ibu"], 0, ",", ".") . "<br/>Bittereindruck: " . number_format($value, 1, ",", ".") . " - " . $descr;
+                $tt = "IBU: " . number_format($recipe["ibu"], 0, ",", ".") . "<br/>Bittereindruck: " . number_format($value, 1, ",", ".") . " - " . $descr . "<br/>BU:GU: " . number_format($bugu, 2, ",", ".");
             }
             $content .= $this->formatString(
                 '<tr>
@@ -1058,9 +1058,13 @@ class WP_Brewing {
                    <td colspan="2">{song}</td>
                  </tr>',
                 [
-                    'song' => $recipe["song"]
+                    'song' => $recipe["song_url"] ? '<a href="' . $recipe["song_url"] . '">' . $recipe["song"] . "</a>" : $recipe["song"]
                 ]);
         }
+            $rendered_name = $h["name"];
+            if (strlen($h["url"]) >= 1) {
+                $rendered_name = '<a href="' . $h["url"] . '">' . $rendered_name . '</a>';
+            }
 
         // mash (fermentables, hops, adjuncts)
         if ($recipe["fermentables"]) {
@@ -1816,6 +1820,7 @@ class WP_Brewing {
                 "co2" => $co2 > 0 ? $co2 : null, // CO2 g/l
                 "drink_temp" => str_replace(",", ".", preg_replace("~[^0-9.,]~i", "", $this->extractText($Sud["Kommentar"], "Trinktemperatur", null))), // °C
                 "song" => $this->extractText($Sud["Kommentar"], "Song", null), // "Song zum Bier" :-) (free text)
+                "song_url" => $this->extractText($Sud["Kommentar"], "Song-URL", null),
                 "stock" => $this->extractText($Sud["Kommentar"], "Restbestand", null), // "Restbestand" (free text)
                 "containers" => $this->extractText($Sud["Kommentar"], "Gebinde", null), // "Gebinde" (free text)
                 "pack_color" => $this->extractText($Sud["Kommentar"], "Kronkorkenfarbe", null), // "Kronkorkenfarbe" (free text)
@@ -2194,10 +2199,10 @@ class WP_Brewing {
         }
         
         $category = get_option('wp_brewing_category', 'Sude');
-        
+
         $location = $this->getKbhLocation();
 
-        $db = new SQLite3($location);
+    	$db = new SQLite3($location);
 
         $query = "SELECT * FROM Sud" . $where . " ORDER BY Braudatum" . ((($mode == "xml") || ($mode == "steuer")) ? "" : " DESC");
         $dbsude = $db->query($query);
@@ -2470,6 +2475,7 @@ class WP_Brewing {
                 "co2" => 0, // CO2 g/l
                 "drink_temp" => 0, // °C
                 "song" => null, // "Song zum Bier" :-) (free text)
+                "song_url" => null,
                 "stock" => null, // "Restbestand" (free text)
                 "containers" => null, // "Gebinde" (free text)
                 "pack_color" => null, // "Kronkorkenfarbe" (free text)
