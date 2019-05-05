@@ -42,6 +42,7 @@ define("HOP_PLUG", 3);
 define("HOP_EXTRACT", 4);
 
 // note: order matters!
+define("STATUS_RECIPE", 0);
 define("STATUS_PREPARING", 10);
 define("STATUS_BREWDAY", 20);
 define("STATUS_BREWDAY_CRUSHING", 21);
@@ -72,22 +73,22 @@ define("FLOC_HIGH", 3);
 
 
 
-    function adjuncts_cmp($a, $b) {
-        if ($a["usage"] < $b["usage"]) {
-            return -1;
-        } elseif ($a["usage"] > $b["usage"]) {
-            return 1;
-        } else {
-            if ($a["time"] == $b["time"]) return 0;
-            return ($a["time"] < $b["time"]) ? -1 : 1;
-        }
+function adjuncts_cmp($a, $b) {
+    if ($a["usage"] < $b["usage"]) {
+        return -1;
+    } elseif ($a["usage"] > $b["usage"]) {
+        return 1;
+    } else {
+        if ($a["time"] == $b["time"]) return 0;
+        return ($a["time"] > $b["time"]) ? -1 : 1;
     }
+}
 
     
 
-    function gaben_cmp($a, $b) {
-        return $a["Zeit"] < $b["Zeit"];
-    }
+function gaben_cmp($a, $b) {
+    return $a["Zeit"] < $b["Zeit"];
+}
 
 
 
@@ -119,12 +120,15 @@ class WP_Brewing {
         add_shortcode('kbh-recipe', array($this, 'kbh_recipe_shortcode'));
         add_shortcode('kbh-recipes', array($this, 'kbh_recipes_shortcode'));
 
+        add_shortcode('bf-recipe', array($this, 'bf_recipe_shortcode'));
+        add_shortcode('bf-recipes', array($this, 'bf_recipes_shortcode'));
+
         add_shortcode('bs-recipe', array($this, 'bs_recipe_shortcode'));
         add_shortcode('bs-recipes', array($this, 'bs_recipes_shortcode'));
 
         add_shortcode('bjcp-styleguide', array($this, 'bjcp_styleguide_shortcode'));
         add_shortcode('bjcp-style', array($this, 'bjcp_style_shortcode'));
-
+        
         // if (isset($_GET["attachment_id"] ) && isset($_GET['download_2075'])) {
         if (isset($_GET['download_2075'])) {
             $this->kbh_send_2075($_GET['download_2075']);
@@ -146,6 +150,27 @@ class WP_Brewing {
                     file_put_contents($path, $data);
                 } else {
                     return '[embedding recipe failed.] <!-- could not load KBH DB from ' . $location . ' -->';
+                }
+            }
+            $location = $path;
+    	}
+        return $location;
+    }
+
+    
+
+    function getBfLocation() {
+    	$location = get_option('wp_brewing_bf_location', '/tmp/Brewfather_EXPORT_ALL.json');
+    	$cache = get_option('wp_brewing_bf_cache', 3600);
+    	if (strpos($location, '//') !== false) {
+            $path = get_temp_dir() . "/wp-brewing-bf.json";
+            if ((!file_exists($path)) || (time()-filemtime($path) > $cache)) {
+                $response = wp_remote_get($location);
+                if (is_array($response)) {
+                    $data = $response['body'];
+                    file_put_contents($path, $data);
+                } else {
+                    return '[embedding recipe failed.] <!-- could not load Brewfather JSON dump from ' . $location . ' -->';
                 }
             }
             $location = $path;
@@ -250,6 +275,12 @@ class WP_Brewing {
 
 
     
+    function volsToCo2g($v) {
+        return $v * 1.96;
+    }
+
+
+    
     function calToJoule($v) {
         return $v * 4.184;
 
@@ -265,6 +296,212 @@ class WP_Brewing {
     
     function srmToEbc($v) {
         return $v / 0.508;
+    }
+
+
+    
+    function ebcToRgb($v) {
+        $table = [
+            [0,255,255,255],
+            [0.5,255,253,230],
+            [1,255,250,198],
+            [1.5,255,248,175],
+            [2,255,246,149],
+            [2.5,255,243,123],
+            [3,255,241,94],
+            [3.5,255,233,84],
+            [4,255,225,74],
+            [4.5,255,216,66],
+            [5,255,206,57],
+            [5.5,255,197,47],
+            [6,255,188,37],
+            [6.5,255,178,26],
+            [7,255,168,16],
+            [7.5,255,161,8],
+            [8,255,154,0],
+            [8.5,253,152,0],
+            [9,251,150,0],
+            [9.5,249,149,0],
+            [10,247,147,0],
+            [10.5,245,144,0],
+            [11,243,142,0],
+            [11.5,240,141,0],
+            [12,237,140,0],
+            [12.5,235,138,0],
+            [13,233,136,0],
+            [13.5,231,134,0],
+            [14,229,132,0],
+            [14.5,227,131,0],
+            [15,226,129,0],
+            [15.5,223,127,0],
+            [16,221,126,0],
+            [16.5,219,125,0],
+            [17,218,124,0],
+            [17.5,216,121,0],
+            [18,214,119,0],
+            [18.5,212,116,0],
+            [19,211,111,0],
+            [19.5,208,105,0],
+            [20,204,101,0],
+            [20.5,204,95,0],
+            [21,203,89,0],
+            [22,199,79,0],
+            [23,194,70,0],
+            [24,192,62,0],
+            [25,186,49,0],
+            [26,181,43,0],
+            [27,177,41,0],
+            [28,171,39,0],
+            [29,165,37,0],
+            [30,161,34,0],
+            [31,155,32,0],
+            [32,149,31,0],
+            [33,143,28,0],
+            [34,140,26,0],
+            [35,134,24,0],
+            [36,130,21,0],
+            [37,124,18,0],
+            [38,119,16,0],
+            [39,114,14,0],
+            [40,107,11,0],
+            [41,103,11,0],
+            [42,96,7,0],
+            [43,92,4,0],
+            [44,86,2,0],
+            [45,81,0,0],
+            [46,78,0,0],
+            [47,75,0,0],
+            [48,72,0,0],
+            [49,70,0,0],
+            [50,68,0,0],
+            [51,68,0,0],
+            [52,66,0,0],
+            [53,66,0,0],
+            [54,66,0,0],
+            [55,65,0,0],
+            [56,65,0,0],
+            [57,65,0,0],
+            [58,64,0,0],
+            [59,64,0,0],
+            [60,64,0,0],
+            [61,63,0,0],
+            [62,63,0,0],
+            [63,63,0,0],
+            [64,62,0,0],
+            [65,62,0,0],
+            [66,62,0,0],
+            [67,61,0,0],
+            [68,61,0,0],
+            [69,61,0,0],
+            [70,61,0,0],
+            [71,60,0,0],
+            [72,60,0,0],
+            [73,59,0,0],
+            [74,59,0,0],
+            [75,58,0,0],
+            [76,58,0,0],
+            [77,57,0,0],
+            [78,57,0,0],
+            [79,56,0,0],
+            [80,56,0,0],
+            [81,56,0,0],
+            [82,56,0,0],
+            [83,55,0,0],
+            [84,55,0,0],
+            [85,55,0,0],
+            [86,55,0,0],
+            [87,54,0,0],
+            [88,54,0,0],
+            [89,54,0,0],
+            [90,54,0,0],
+            [91,53,0,0],
+            [92,53,0,0],
+            [93,53,0,0],
+            [94,52,0,0],
+            [95,52,0,0],
+            [96,52,0,0],
+            [97,51,0,0],
+            [98,51,0,0],
+            [99,51,0,0],
+            [100,50,0,0],
+            [101,50,0,0],
+            [102,49,0,0],
+            [103,49,0,0],
+            [104,49,0,0],
+            [105,48,0,0],
+            [106,48,0,0],
+            [107,48,0,0],
+            [108,47,0,0],
+            [109,47,0,0],
+            [110,46,0,0],
+            [111,46,0,0],
+            [112,45,0,0],
+            [113,45,0,0],
+            [114,45,0,0],
+            [115,44,0,0],
+            [116,44,0,0],
+            [117,44,0,0],
+            [118,43,0,0],
+            [119,43,0,0],
+            [120,43,0,0],
+            [121,42,0,0],
+            [122,42,0,0],
+            [123,42,0,0],
+            [124,41,0,0],
+            [125,41,0,0],
+            [126,41,0,0],
+            [127,40,0,0],
+            [128,40,0,0],
+            [129,40,0,0],
+            [130,39,0,0],
+            [131,39,0,0],
+            [132,38,0,0],
+            [133,38,0,0],
+            [134,37,0,0],
+            [135,37,0,0],
+            [136,37,0,0],
+            [137,36,0,0],
+            [138,36,0,0],
+            [139,36,0,0],
+            [140,35,0,0],
+            [141,35,0,0],
+            [142,34,0,0],
+            [143,34,0,0],
+            [144,34,0,0],
+            [145,33,0,0],
+            [146,33,0,0],
+            [147,32,0,0],
+            [148,32,0,0],
+            [149,32,0,0],
+            [150,31,0,0],
+            [200,21,0,0],
+            [250,14,0,0],
+            [300,0,0,0]
+        ];
+        if ($v == 0) {
+            $rgb = [255,255,255];
+        } elseif ($v < 0) {
+            $rgb = [255,0,0];
+        } elseif ($v >= 300) {
+            $rgb = [0,0,0];
+        } else {
+            for ($i=0; $i<count($table); $i++) {
+                if ($v <= $table[$i][0]) {
+                    break;
+                }
+            }
+            $lower = $table[$i-1];
+            $upper = $table[$i];
+            $ebcdiff = $upper[0] - $lower[0];
+            $inputdiff = $v - $lower[0];
+            $fraction = $inputdiff / $ebcdiff;
+            $rgb = [
+                round($lower[1] + $fraction * ($upper[1] - $lower[1])),
+                round($lower[2] + $fraction * ($upper[2] - $lower[2])),
+                round($lower[3] + $fraction * ($upper[3] - $lower[3]))
+            ];
+        }
+        return $rgb;
     }
 
 
@@ -289,6 +526,12 @@ class WP_Brewing {
     
     function barToPsi($v) {
         return $v * 14.5038;
+    }
+
+
+    
+    function psiToBar($v) {
+        return $v / 14.5038;
     }
 
 
@@ -357,6 +600,12 @@ class WP_Brewing {
     
 
 
+    function secsToDate($v) {
+        return strftime("%FT%TZ", $v);
+    }
+
+
+    
     function renderDate($v) {
         return substr($v, 0, 10);
     }
@@ -365,6 +614,9 @@ class WP_Brewing {
 
     function renderStyleName($style_id) {
         $styleguide_name = get_option('wp_brewing_bjcp_name', 'styleguide');
+        global $query;
+        $original_query = $query;
+        $query = null;
         $query = new WP_Query( array(
             'post_type' => 'attachment',
             'name' => $styleguide_name ) );
@@ -384,6 +636,10 @@ class WP_Brewing {
                 $ret = $style->getElementsByTagName('name')->item(0)->textContent;
             }
         }
+        $query = null;
+        $query = $original_query;
+        wp_reset_postdata();
+        
         return $ret;
     }
 
@@ -416,33 +672,6 @@ class WP_Brewing {
         return $content;
     }
 
-
-
-    function childNode($node, $childname) {
-        $parent = $node->parentNode;
-        foreach ($node->childNodes as $pp) {
-            if ($pp->nodeName == $childname) {
-                return $pp;
-            }
-        }
-        return null;
-    }
-
-
-
-    function attr($node, $attrname) {
-        if (! $node) { return null; }
-        return $node->getAttribute($attrname);
-    }
-
-
-    
-    function formatString($str, $data) {
-        return preg_replace_callback('#{(\w+?)(\.(\w+?))?}#', function($m) use ($data) {
-                return count($m) === 2 ? $data[$m[1]] : $data[$m[1]][$m[3]];
-            }, $str);
-    }
-    
 
 
     function renderStyle($id_or_name) {
@@ -561,17 +790,15 @@ class WP_Brewing {
                         [
                             'instr' => $doc->saveXML($this->childNode($style, 'entry_instructions'))
                         ]);
-                    /*
-                    $list = null;
-                    $specialties = $style->getElementsByTagName('specialty');
-                    foreach ($specialties as $specialty) {
-                        if ($list) { $list .= ", "; }
-                        $n = $specialty->getElementsByTagName('name')->item(0)->textContent;
-                        // $list .= $specialty->getElementsByTagName('name')->textContent;
-                        $list .= $n;
-                    }
-                    $specialties_fragment .= "<dt>Defined Specialties</dt><dd>" . $list . "</dd>";
-                    */
+                    //$list = null;
+                    //$specialties = $style->getElementsByTagName('specialty');
+                    //foreach ($specialties as $specialty) {
+                    //    if ($list) { $list .= ", "; }
+                    //    $n = $specialty->getElementsByTagName('name')->item(0)->textContent;
+                    //    // $list .= $specialty->getElementsByTagName('name')->textContent;
+                    //    $list .= $n;
+                    //}
+                    //$specialties_fragment .= "<dt>Defined Specialties</dt><dd>" . $list . "</dd>";
                     $details_fragment .= $specialties_fragment;
                 }
 
@@ -637,8 +864,36 @@ class WP_Brewing {
 
 
 
+    function childNode($node, $childname) {
+        $parent = $node->parentNode;
+        foreach ($node->childNodes as $pp) {
+            if ($pp->nodeName == $childname) {
+                return $pp;
+            }
+        }
+        return null;
+    }
+
+
+
+    function attr($node, $attrname) {
+        if (! $node) { return null; }
+        return $node->getAttribute($attrname);
+    }
+
+
+    
+    function formatString($str, $data) {
+        return preg_replace_callback('#{(\w+?)(\.(\w+?))?}#', function($m) use ($data) {
+                return count($m) === 2 ? $data[$m[1]] : $data[$m[1]][$m[3]];
+            }, $str);
+    }
+    
+
+
     function statusWord($status) {
         switch($status) {
+        case STATUS_RECIPE: $value = "Rezept"; break;
         case STATUS_PREPARING: $value = "in Vorbereitung"; break;
         case STATUS_BREWDAY: $value = "Brautag"; break;
         case STATUS_BREWDAY_CRUSHING: $value = "Schroten"; break;
@@ -656,6 +911,18 @@ class WP_Brewing {
         case STATUS_CONSUMING: $value = "wird kunsumiert"; break;
         case STATUS_EMPTIED: $value = "leer"; break;
         case STATUS_DUMPED: $value = "entsorgt"; break;
+        default: $value = "undefiniert";
+        }
+        return $value;
+    }
+
+    
+
+    function recipeTypeWord($type) {
+        switch($type) {
+        case RECIPE_TYPE_ALLGRAIN: $value = "All Grain"; break;
+        case RECIPE_TYPE_EXTRACT: $value = "Extrac"; break;
+        case RECIPE_TYPE_BIAB: $value = "Brew in a Bag"; break;
         default: $value = "undefiniert";
         }
         return $value;
@@ -760,6 +1027,54 @@ class WP_Brewing {
 
 
     
+    function zahlWort($int) {
+        $int = (string)(int)$int;
+        $z2w = array('null'=>'null', 'und'=>'und',
+                     1=>array('ein','ein','zwei','drei','vier','fünf','sechs','sieben','acht','neun','zehn',
+                              'elf','zwölf','dreizehn','vierzehn','fünfzehn','sechzehn','siebzehn','achtzehn','neunzehn'),
+                     2=>array('zwanzig','dreissig','vierzig','fünfzig','sechzig', 'siebzig','achtzig','neunzig'),
+                     3=>array('hundert','tausend')
+        );
+        $intrev = strrev($int);
+        $len = strlen($intrev); // Stellen
+        $zif = str_split($intrev); // Ziffern
+        $zif = array_map('intval', $zif);
+        $wort = '';
+  
+        if($len===1){ # Einstellige Zahl
+            if($zif[0]===0) $wort .= $z2w['null']; // 0
+            elseif($zif[0]===1) $wort .= $z2w[1][0]; // 1
+            else $wort .= $z2w[1][$zif[0]]; // 2 bis 9
+        }
+        elseif($len===2){ # Zweistellige Zahl
+            if($zif[1]===1) $wort .= $z2w[1][$zif[0]+10]; // 10 bis 19
+            elseif($zif[1]>=2 & $zif[0]!==0) $wort .= $z2w[1][$zif[0]].$z2w['und']; // [2-9][1-9]
+            if($zif[1]>=2) $wort .= $z2w[2][$zif[1]-2]; // 20 bis 99
+        }
+        elseif($len===3){ # Dreistellige Zahl
+            $wort .= $z2w[1][$zif[2]].$z2w[3][0]; // 100 bis 999
+            if($zif[1]===0 & $zif[0]==1) $wort .= $z2w[1][0]; // n01
+            elseif($zif[1]===0 & $zif[0]!==0) $wort .= $z2w[1][$zif[0]]; // n02 bis n09
+            elseif($zif[1]===1) $wort .= $z2w[1][$zif[0]+10]; // n10 bis n19
+            elseif($zif[1]>=2 & $zif[0]!=0) $wort .= $z2w[1][$zif[0]].$z2w['und']; // n[2-9][1-9]
+            if($zif[1]>=2) $wort .= $z2w[2][$zif[1]-2]; // n20 bis n99
+        }
+        elseif($len===4){ # Vierstellige Zahl
+            $wort .= $z2w[1][$zif[3]].$z2w[3][1]; // 1000 bis 9999
+            if($zif[2]!==0) $wort .= $z2w[1][$zif[2]].$z2w[3][0]; // n100 bis n999
+            elseif($zif[1]!==0 || $zif[0]!==0) $wort .= $z2w['und']; // n0[1-9][1-9]
+            if($zif[1]===0 & $zif[0]===1) $wort .= $z2w[1][0]; // nn01
+            elseif($zif[1]===0 & $zif[0]!==0) $wort .= $z2w[1][$zif[0]]; // nn02 bis nn09
+            elseif($zif[1]===1) $wort .= $z2w[1][$zif[0]+10]; // nn10 bis nn19
+            elseif($zif[1]>=2 & $zif[0]!==0) $wort .= $z2w[1][$zif[0]].$z2w['und']; // nn[2-9][1-9]
+            if($zif[1]>=2) $wort .= $z2w[2][$zif[1]-2]; // nn20 bis nn99
+        }
+  
+        return $wort;        
+    }
+
+
+    
     function renderRecipe($recipe) {
         
         $content .= $this->formatString(
@@ -844,6 +1159,15 @@ class WP_Brewing {
                     'name' => $this->renderStyleName($recipe["bjcp2015_style_id"]),
                     'tt' => $this->renderStyleName($recipe["bjcp2015_style_id"])
                 ]);
+        } elseif ($recipe["style"]) {
+            $content .= $this->formatString(
+                '<tr>
+                   <td>Stil</td>
+                   <td colspan="2">{name}</td>
+                 </tr>',
+                [
+                    'name' => $recipe["style"],
+                ]);
         }
 
         if (($recipe["planned_batch_volume"] > 0) || ($recipe["bottled_volume"] > 0)) {
@@ -918,7 +1242,7 @@ class WP_Brewing {
             $content .= $this->formatString(
                 '<tr>
                    <td>{label}</td>
-                   <td colspan="2"><span data-cmtooltip="{tt}">{value} °P</span></td>
+                   <td colspan="2"><span data-cmtooltip="{tt}">{value}</span> °P</td>
                  </tr>',
                 [
                     'label' => $label,
@@ -993,20 +1317,25 @@ class WP_Brewing {
         if ($recipe["ibu"]) {
             $tt = "";
             if (($recipe["og"] || $recipe["planned_og"])) {
-                $value = $recipe["ibu"] / $this->sgToPlato(($recipe["og"] ? $recipe["og"] : $recipe["planned_og"]));
-                $bugu = $recipe["ibu"] / ((($recipe["og"] ? $recipe["og"] : $recipe["planned_og"]) - 1.0) * 1000.0);
+                $og = $recipe["og"] ? $recipe["og"] : $recipe["planned_og"];
+                $fg = $recipe["fg"] ? $recipe["fg"] : ($recipe["estimated_fg"] ? $recipe["estimated_fg"] : $recipe["current_g"]);
+                $value = $recipe["ibu"] / $this->sgToPlato($og);
+                $bugu = $recipe["ibu"] / (($og - 1.0) * 1000.0);
                 if ($value < 1.5) { $descr = "sehr malzig"; }
                 elseif ($value < 2.0) { $descr = "malzig"; }
                 elseif ($value < 2.2) { $descr = "ausgewogen"; } // "mild bis ausgewogen"
                 elseif ($value < 3.0) { $descr = "herb"; }
                 elseif ($value < 6.0) { $descr = "sehr herb"; }
                 else { $descr = "Hopfenbombe"; }
-                $tt = "IBU: " . number_format($recipe["ibu"], 0, ",", ".") . "<br/>Bittereindruck: " . number_format($value, 1, ",", ".") . " - " . $descr . "<br/>BU:GU: " . number_format($bugu, 2, ",", ".");
+                # Relative Bitterness Ratio (http://www.madalchemist.com/relative_bitterness.html)
+                $adf = ($this->sgToPlato($og) - $this->sgToPlato($fg)) * 100 / $this->sgToPlato($og);
+                $rbr = $bugu * (1 + (($adf / 100) - 0.7655));
+                $tt = "IBU: " . number_format($recipe["ibu"], 0, ",", ".") . "<br/>Bittereindruck: " . number_format($value, 1, ",", ".") . " - " . $descr . "<br/>BU:GU: " . number_format($bugu, 2, ",", ".") . "<br/>Ralative Bitterness Ratio: " . number_format($rbr, 2, ",", ".");
             }
             $content .= $this->formatString(
                 '<tr>
                    <td>Berechnete Bittere</td>
-                   <td colspan="2"><span data-cmtooltip="{tt}">{ibu} IBU</span></td>
+                   <td colspan="2"><span data-cmtooltip="{tt}">{ibu}</span> IBU</td>
                  </tr>',
                 [
                     'ibu' => number_format($recipe["ibu"], 0, ",", "."),
@@ -1015,14 +1344,18 @@ class WP_Brewing {
         }
         
         if ($recipe["ebc"]) {
+            $rgb = $this->ebcToRgb($recipe["ebc"]);
             $content .= $this->formatString(
                 '<tr>
                    <td>Berechnete Farbe</td>
-                   <td colspan="2"><span data-cmtooltip="{tt}">{ebc} EBC</span></td>
+                   <td colspan="2"><span data-cmtooltip="{tt}">{ebc}</span> EBC &nbsp;<span style="border:1px solid white; background-color:rgb({r},{g},{b});">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;</span></td>
                  </tr>',
                 [
                     'ebc' => number_format($recipe["ebc"], 0, ",", "."),
-                    'tt' => number_format($this->ebcToSrm($recipe["ebc"]), 1, ",", ".") . " SRM, " . number_format($this->ebcToLovibond($recipe["ebc"]), 2, ",", ".") . " °L"
+                    'tt' => number_format($this->ebcToSrm($recipe["ebc"]), 1, ",", ".") . " SRM, " . number_format($this->ebcToLovibond($recipe["ebc"]), 2, ",", ".") . " °L",
+                    'r' => $rgb[0],
+                    'g' => $rgb[1],
+                    'b' => $rgb[2]
                 ]);
         }
         
@@ -1096,7 +1429,7 @@ class WP_Brewing {
                      </tr>',
                     [
                         'rendered_name' => $rendered_name,
-                        'percent' => number_format($percent, 1, ",", "."),
+                        'percent' => $percent == 100 ? "100" : number_format($percent, 1, ",", "."),
                         'amount' => number_format($f["amount"], 3, ",", "."),
                         'tt_amount' => number_format($this->kgToLb($f["amount"]), 3, ",", ".") . " lb"
                     ]);
@@ -1211,6 +1544,7 @@ class WP_Brewing {
                 [
                     'time' => number_format($recipe["boil_time"], 0, ",", ".")
                 ]);
+            $rows = [];
             foreach ($recipe["hops"] as $h) {
                 if (($h["usage"] < USAGE_FIRSTWORT) || ($h["usage"] > USAGE_WHIRLPOOL)) continue;
                 $rendered_name = $h["name"];
@@ -1242,7 +1576,7 @@ class WP_Brewing {
                 $tt_amount = number_format($this->gToOz($h["amount"]), 2, ",", ".") . " oz";
                 $dose = number_format($h["amount"] / $recipe["planned_batch_volume"], 1, ",", ".") . " g/l";
                 $tt_dose = number_format($this->gToOz($h["amount"]) / $this->lToGal($recipe["planned_batch_volume"]), 2, ",", ".") . " oz/gal";
-    			$content .= $this->formatString(
+    			$line = $this->formatString(
                     '<tr>
                        <td>{rendered_name}{rendered_type}{rendered_alpha}, <span data-cmtooltip="{tt_dose}">{dose}</span></td>
                        <td><span data-cmtooltip="{tt_amount}">{amount} g</span></td>
@@ -1258,6 +1592,7 @@ class WP_Brewing {
                         'dose' => $dose,
                         'tt_dose' => $tt_dose
                     ]);
+                array_push($rows, ["line" => $line, "usage" => $h["usage"], "time" => $h["time"]]);
     		}
             foreach ($recipe["adjuncts"] as $a) {
                 if (($a["usage"] < USAGE_FIRSTWORT) || ($a["usage"] > USAGE_WHIRLPOOL)) continue;
@@ -1277,7 +1612,7 @@ class WP_Brewing {
                 $unit = $a["unit"];
                 $amount = number_format($a["amount"], 0, ",", ".");
                 $dose = number_format($a["amount"] / $recipe["planned_batch_volume"], 1, ",", ".") . " " . $unit . "/l";
-    			$content .= $this->formatString(
+    			$line = $this->formatString(
                     '<tr>
                        <td>{rendered_name}, {dose}</td>
                        <td>{amount} {unit}</td>
@@ -1290,9 +1625,47 @@ class WP_Brewing {
                         'unit' => $unit,
                         'rendered_time' => $rendered_time
                     ]);
+                array_push($rows, ["line" => $line, "usage" => $a["usage"], "time" => $a["time"]]);
+            }
+            foreach ($recipe["fermentables"] as $f) {
+                if (($f["usage"] < USAGE_FIRSTWORT) || ($f["usage"] > USAGE_WHIRLPOOL)) continue;
+                $rendered_name = $f["name"];
+                if (strlen($f["url"]) >= 1) {
+                    $rendered_name = '<a href="' . $f["url"] . '">' . $rendered_name . '</a>';
+                }
+                $rendered_time = "";
+                switch ($f["usage"]) {
+                case USAGE_MASH: $rendered_time = "Maische"; break;
+                case USAGE_FIRSTWORT: $rendered_time = "Vorderwürze"; break;
+                case USAGE_BOIL: $rendered_time = (($f["time"] == 0) ? "Kochende" : (number_format($f["time"], 0, ",", ".") . " Minuten")); break;
+                case USAGE_FLAMEOUT: $rendered_time = "Kochende"; break;
+                case USAGE_WHIRLPOOL: $rendered_time = "Whirlpool"; break;
+                default: $rendered_time = "(?)";
+                }
+                $unit = "g";
+                $amount = $f["amount"] * 1000;
+                $dose = number_format($amount / $recipe["planned_batch_volume"], 1, ",", ".") . " " . $unit . "/l";
+    			$line = $this->formatString(
+                    '<tr>
+                       <td>{rendered_name}, {dose}</td>
+                       <td>{amount} {unit}</td>
+                       <td>{rendered_time}</td>
+                     </tr>',
+                    [
+                        'rendered_name' => $rendered_name,
+                        'dose' => $dose,
+                        'amount' => number_format($amount, ($unit == "g" ? 0 : 3), ",", "."),
+                        'unit' => $unit,
+                        'rendered_time' => $rendered_time
+                    ]);
+                array_push($rows, ["line" => $line, "usage" => $f["usage"], "time" => $f["time"]]);
+            }
+            usort($rows, 'adjuncts_cmp');
+            foreach ($rows as $row) {
+                $content .= $row["line"];
             }
         }
-
+        
         if ($recipe["sudhausausbeute"] or $recipe["estimated_sudhausausbeute"]) {
             $tt = null;
             if ($recipe["estimated_sudhausausbeute"]) {
@@ -1440,7 +1813,7 @@ class WP_Brewing {
                 } elseif ($y["flocculation"] == FLOC_HIGH) {
                     $floc = "hoch";
                 } else {
-                    $floc = "?";
+                    $floc = $y["flocculation"];
                 }
                 if ($y["temp_max"]) {
                     $temp_range = number_format($y["temp_max"], 0, ",", ".");
@@ -1584,8 +1957,8 @@ class WP_Brewing {
                 $bar20 = $this->calcBarAtC($recipe["planned_co2"], 20);
                 $psi38 = $this->calcPsiAtF($recipe["planned_co2"], 38);
                 $psi68 = $this->calcPsiAtF($recipe["planned_co2"], 68);
-                $vols = $this->co2gToVols($value);
-                $tt = $label . ": " . $value . " g/l CO2 <br/> ≙ " . number_format($bar4, 1, ",", ".") . "-" . number_format($bar20, 1, ",", ".") . " bar bei 4-20 °C <br/> ≙ " . number_format($psi38, 1, ",", ".") . "-" . number_format($psi68, 1, ",", ".") . " psi bei 38-68 °F <br/> ≙ " . number_format($vols, 1, ",", ".") . " volumes" . ($tt ? (",<br/>" . $tt) : "");
+                $vols = $this->co2gToVols($recipe["planned_co2"]);
+                $tt = $label . ": " . $value . " g/l <br/> ≙ " . number_format($bar4, 1, ",", ".") . "-" . number_format($bar20, 1, ",", ".") . " bar bei 4-20 °C <br/> ≙ " . number_format($psi38, 1, ",", ".") . "-" . number_format($psi68, 1, ",", ".") . " psi bei 38-68 °F <br/> ≙ " . number_format($vols, 1, ",", ".") . " volumes" . ($tt ? (",<br/>" . $tt) : "");
             }
             if ($recipe["co2"]) {
                 $value = number_format($recipe["co2"], 1, ",", ".");
@@ -1594,13 +1967,13 @@ class WP_Brewing {
                 $bar20 = $this->calcBarAtC($recipe["co2"], 20);
                 $psi38 = $this->calcPsiAtF($recipe["co2"], 38);
                 $psi68 = $this->calcPsiAtF($recipe["co2"], 68);
-                $vols = $this->co2gToVols($value);
-                $tt = $label . ": " . $value . " g/l CO2 <br/> ≙ " . number_format($bar4, 1, ",", ".") . "-" . number_format($bar20, 1, ",", ".") . " bar bei 4-20 °C <br/> ≙ " . number_format($psi38, 1, ",", ".") . "-" . number_format($psi68, 1, ",", ".") . " psi bei 38-68 °F <br/> ≙ " . number_format($vols, 1, ",", ".") . " volumes" . ($tt ? (",<br/>" . $tt) : "");
+                $vols = $this->co2gToVols($recipe["co2"]);
+                $tt = $label . ": " . $value . " g/l <br/> ≙ " . number_format($bar4, 1, ",", ".") . "-" . number_format($bar20, 1, ",", ".") . " bar bei 4-20 °C <br/> ≙ " . number_format($psi38, 1, ",", ".") . "-" . number_format($psi68, 1, ",", ".") . " psi bei 38-68 °F <br/> ≙ " . number_format($vols, 1, ",", ".") . " volumes" . ($tt ? (",<br/>" . $tt) : "");
             }
             $content .= $this->formatString(
                 '<tr>
                    <td>{label}</td>
-                   <td colspan="2"><span data-cmtooltip="{tt}">{value} g/l CO2</span></td>
+                   <td colspan="2"><span data-cmtooltip="{tt}">{value} g/l</span></td>
                  </tr>',
                 [
                     'label' => $label,
@@ -1642,15 +2015,17 @@ class WP_Brewing {
             '<tr><th>Metadaten</th><th colspan="2"></th></tr>
              {tr_brewer}
              {tr_cobrewer}
+             {tr_type}
              {tr_software}
              {tr_equipment}
              <tr><td>Letztes Update</td><td colspan="2">{updated_at}</td></tr>
            </table',
             [
-                'tr_brewer' => $recipe["brewer"] ? '<tr><td>Brauer</td><td colspan="2">' . $recipe["brewer"] : "</td></tr>",
-                'tr_cobrewer' => $recipe["assistant"] ? '<tr><td>Co-Brauer</td><td colspan="2">' . $recipe["assistant"] : "</td></tr>",
-                'tr_software' => $recipe["source"] ? '<tr><td>Software / Datenquelle</td><td colspan="2">' . $recipe["source"] : "</td></tr>",
-                'tr_equipment' => $recipe["equipment"] ? '<tr><td>Equipment</td><td colspan="2">' . $recipe["equipment"] : "</td></tr>",
+                'tr_brewer' => $recipe["brewer"] ? '<tr><td>Brauer</td><td colspan="2">' . $recipe["brewer"] . "</td></tr>" : "",
+                'tr_cobrewer' => $recipe["assistant"] ? '<tr><td>Co-Brauer</td><td colspan="2">' . $recipe["assistant"] . "</td></tr>" : "",
+                'tr_type' => $recipe["type"] ? '<tr><td>Brauart</td><td colspan="2">' . $this->recipeTypeWord($recipe["type"]) . "</td></tr>" : "",
+                'tr_software' => $recipe["source"] ? '<tr><td>Software / Datenquelle</td><td colspan="2">' . $recipe["source"] . "</td></tr>" : "",
+                'tr_equipment' => $recipe["equipment"] ? '<tr><td>Equipment</td><td colspan="2">' . $recipe["equipment"] . "</td></tr>" : "",
                 'updated_at' => $this->renderDate($recipe["updated_at"])
             ]);
         
@@ -1675,11 +2050,14 @@ class WP_Brewing {
     function kbh_recipe_shortcode($atts) {
 
     	$a = shortcode_atts (array(
+    		'number' => null,
     		'title' => null,
     		'select' => null
         ), $atts);
     	$select = $a['select'];
-    	if ($a['title']) {
+    	if ($a['number']) {
+    		$select = "Sudnummer = " . $a['number'] ;
+        } elseif ($a['title']) {
     		$select = "Sudname LIKE '" . $a['title'] . "'";
     	}
 
@@ -1815,7 +2193,7 @@ class WP_Brewing {
                 "ibu" => $Sud["IBU"], // IBU
                 "ebc" => $Sud["erg_Farbe"], // EBC
                 "calories" => $kcal > 0 ? $kcal : null, // kcal/100ml
-                //"planned_co2" => str_replace(",", ".", preg_replace("~[^0-9.,]~i", "", $this->extractText($Sud["Kommentar"], "CO2", null))), // g/l
+                //"Planned_co2" => str_replace(",", ".", preg_replace("~[^0-9.,]~i", "", $this->extractText($Sud["Kommentar"], "CO2", null))), // g/l
                 "planned_co2" => str_replace(",", ".", preg_replace("~[^0-9.,]~i", "", $Sud["CO2"])), // g/l
                 "co2" => $co2 > 0 ? $co2 : null, // CO2 g/l
                 "drink_temp" => str_replace(",", ".", preg_replace("~[^0-9.,]~i", "", $this->extractText($Sud["Kommentar"], "Trinktemperatur", null))), // °C
@@ -2140,54 +2518,6 @@ class WP_Brewing {
 
 
 
-    function zahlWort($int) {
-        $int = (string)(int)$int;
-        $z2w = array('null'=>'null', 'und'=>'und',
-                     1=>array('ein','ein','zwei','drei','vier','fünf','sechs','sieben','acht','neun','zehn',
-                              'elf','zwölf','dreizehn','vierzehn','fünfzehn','sechzehn','siebzehn','achtzehn','neunzehn'),
-                     2=>array('zwanzig','dreissig','vierzig','fünfzig','sechzig', 'siebzig','achtzig','neunzig'),
-                     3=>array('hundert','tausend')
-        );
-        $intrev = strrev($int);
-        $len = strlen($intrev); // Stellen
-        $zif = str_split($intrev); // Ziffern
-        $zif = array_map('intval', $zif);
-        $wort = '';
-  
-        if($len===1){ # Einstellige Zahl
-            if($zif[0]===0) $wort .= $z2w['null']; // 0
-            elseif($zif[0]===1) $wort .= $z2w[1][0]; // 1
-            else $wort .= $z2w[1][$zif[0]]; // 2 bis 9
-        }
-        elseif($len===2){ # Zweistellige Zahl
-            if($zif[1]===1) $wort .= $z2w[1][$zif[0]+10]; // 10 bis 19
-            elseif($zif[1]>=2 & $zif[0]!==0) $wort .= $z2w[1][$zif[0]].$z2w['und']; // [2-9][1-9]
-            if($zif[1]>=2) $wort .= $z2w[2][$zif[1]-2]; // 20 bis 99
-        }
-        elseif($len===3){ # Dreistellige Zahl
-            $wort .= $z2w[1][$zif[2]].$z2w[3][0]; // 100 bis 999
-            if($zif[1]===0 & $zif[0]==1) $wort .= $z2w[1][0]; // n01
-            elseif($zif[1]===0 & $zif[0]!==0) $wort .= $z2w[1][$zif[0]]; // n02 bis n09
-            elseif($zif[1]===1) $wort .= $z2w[1][$zif[0]+10]; // n10 bis n19
-            elseif($zif[1]>=2 & $zif[0]!=0) $wort .= $z2w[1][$zif[0]].$z2w['und']; // n[2-9][1-9]
-            if($zif[1]>=2) $wort .= $z2w[2][$zif[1]-2]; // n20 bis n99
-        }
-        elseif($len===4){ # Vierstellige Zahl
-            $wort .= $z2w[1][$zif[3]].$z2w[3][1]; // 1000 bis 9999
-            if($zif[2]!==0) $wort .= $z2w[1][$zif[2]].$z2w[3][0]; // n100 bis n999
-            elseif($zif[1]!==0 || $zif[0]!==0) $wort .= $z2w['und']; // n0[1-9][1-9]
-            if($zif[1]===0 & $zif[0]===1) $wort .= $z2w[1][0]; // nn01
-            elseif($zif[1]===0 & $zif[0]!==0) $wort .= $z2w[1][$zif[0]]; // nn02 bis nn09
-            elseif($zif[1]===1) $wort .= $z2w[1][$zif[0]+10]; // nn10 bis nn19
-            elseif($zif[1]>=2 & $zif[0]!==0) $wort .= $z2w[1][$zif[0]].$z2w['und']; // nn[2-9][1-9]
-            if($zif[1]>=2) $wort .= $z2w[2][$zif[1]-2]; // nn20 bis nn99
-        }
-  
-        return $wort;        
-    }
-
-
-    
     function kbh_process_table($mode, $year) {
         
         $content = "";
@@ -2427,6 +2757,211 @@ class WP_Brewing {
     
 
     
+    function bf_recipe_shortcode($atts) {
+
+    	$a = shortcode_atts (array(
+    		'number' => null,
+    		'title' => null,
+    		'select' => null
+        ), $atts);
+        $location = $this->getBfLocation();
+        $json = file_get_contents($location);
+        $all = json_decode($json, true);
+        $bf_batch = null;
+        $bf_recipe = null;
+        foreach ($all["data"]["batches"] as $b) {
+            if (($a["number"] && ($b["batchNo"] == $a["number"])) ||
+                ($a["title"] && fnmatch($a["title"], $b["name"]))) {
+                $bf_batch = $b;
+                $bf_recipe = $b["recipe"];
+                break;
+            }
+        }
+        if (! $bf_batch) {
+            foreach ($all["data"]["recipes"] as $r) {
+                if ($a["title"] && fnmatch($a["title"], $r["name"])) {
+                    $bf_recipe = $r;
+                }
+            }
+        }
+
+        $og = $this->sgToPlato($bf_batch["measuredOg"] ? $bf_batch["measuredOg"] : $bf_recipe["og"]);
+        $restextrakt = $this->sgToPlato($bf_batch["measuredFg"] ? $bf_batch["measuredFg"] : $bf_recipe["fg"]);
+        $wfg = 0.1808 * $og + 0.1892 * $restextrakt;
+        $d = 261.1 / (261.53 - $restextrakt);
+        $abw = ($og - $wfg) / (2.0665 - 0.010665 * $og);
+        $kcal = round((6.9 * $abw + 4 * ( $wfg - 0.1 )) * 10 * 0.1 * $d);
+
+        $recipe = [
+            "name" => $bf_batch ? $bf_batch["name"] : $bf_recipe["name"],
+            "source" => "Brewfather " . ($bf_batch ? $bf_batch["_version"] : $bf_recipe["_version"]),
+            "equipment" => $bf_recipe["equipment"]["name"],
+            "brewer" => $bf_batch ? $bf_batch["brewer"] : $bf_recipe["author"],
+            "created_at" => $this->secsToDate($bf_batch ? $bf_batch["_created"]["seconds"] : $bf_recipe["_created"]["seconds"]),
+            "updated_at" => $this->secsToDate($bf_batch ? $bf_batch["_timestamp"]["seconds"] : $bf_recipe["_timestamp"]["seconds"]),
+            "description" => (strlen($bf_batch["batchNotes"]) + strlen($bf_recipe["notes"])) > 0 ? explode(PHP_EOL, strlen($bf_batch["batchNotes"]) > 0 ? $bf_batch["batchNotes"] : $bf_recipe["notes"])[0] : null,
+            "brew_date" => $bf_batch ? $this->secsToDate($bf_batch["brewDate"] / 1000) : null,
+            "bottle_date" => $bf_batch ? $this->secsToDate($bf_batch["bottlingDate"] / 1000) : null,
+            "planned_batch_volume" => $bf_recipe["batchSize"],
+            "bottled_volume" => $bf_batch ? $bf_batch["measuredBottlingSize"] : null,
+            "planned_og" => $bf_recipe["og"],
+            "og" => $bf_batch ? $bf_batch["measuredOg"] : null,
+            "estimated_fg" => $bf_recipe["fg"],
+            "fg" => $bf_batch ? $bf_batch["measuredFg"] : null,
+            // TBD: current_g: brewfather readings seem to be missing from exported json user data !
+            "abv" => $bf_batch["measuredAbv"] ? $bf_batch["measuredAbv"] : $bf_recipe["abv"],
+            "ibu" => $bf_recipe["ibu"],
+            "ebc" => $this->srmToEbc($bf_recipe["color"]),
+            "calories" => $kcal > 0 ? $kcal : null,
+            "planned_co2" => $bf_recipe["carbonation"] ? $this->volsToCo2g($bf_recipe["carbonation"]) : null,
+            "co2" => ($bf_batch["carbonationForce"] && $bf_batch["carbonationTemp"]) ? $this->calcCo2AtC($this->psiToBar($bf_batch["carbonationForce"]), $bf_batch["carbonationTemp"]) : null,
+
+            "drink_temp" => str_replace(",", ".", preg_replace("~[^0-9.,]~i", "", $this->extractText($bf_batch["batchNotes"] . "\n" . $bf_recipe["notes"], "Trinktemperatur", null))), // °C
+            "song" => $this->extractText($bf_batch["batchNotes"] . "\n" . $bf_recipe["notes"], "Song", null), // "Song zum Bier" :-) (free text)
+            "song_url" => $this->extractText($bf_batch["batchNotes"] . "\n" . $bf_recipe["notes"], "Song-URL", null),
+            "stock" => $this->extractText($bf_batch["batchNotes"] . "\n" . $bf_recipe["notes"], "Restbestand", null), // "Restbestand" (free text)
+            "containers" => $this->extractText($bf_batch["batchNotes"] . "\n" . $bf_recipe["notes"], "Gebinde", null), // "Gebinde" (free text)
+            "pack_color" => $this->extractText($bf_batch["batchNotes"] . "\n" . $bf_recipe["notes"], "Kronkorkenfarbe", null), // "Kronkorkenfarbe" (free text)
+            "planned_residual_alkalinity" => $bf_recipe["water"]["mash"]["residualAlkalinity"],
+            "mash_in_temp" => $bf_recipe["mash"]["steps"][0]["stepTemp"],
+            "mash_water_volume" => $bf_recipe["data"]["mashWaterAmount"],
+            "mash_ph" => $bf_batch["measuredMashPh"],
+            "sparge_water_volume" => $bf_recipe["data"]["spargeWaterAmount"],
+            "boil_time" => $bf_recipe["boilTime"],
+            // TBD "estimated_sudhausausbeute"
+            // TBD "sudhausausbeute"
+            // TBD "post_boil_hot_time" // not part of the Brewfather calculation model
+            // "post_boil_roomtemp_volume"
+            "batch_volume" => $bf_batch ? $bf_batch["measuredBatchSize"] : $br_recipe["batchSize"],
+            "fermentables" => [],
+            "mash_steps" => [],
+            "hops" => [],
+            "adjuncts" => [],
+            "yeasts" => [],
+            "fermentation_steps" => [],
+            "status" => $bf_batch ? (($bf_batch["status"] == "Planning") ? STATUS_PREPAIRING : (($bf_batch["status"] == "Archived") ? STATUS_EMPTIED : (($bf_batch["status"] == "Completed") ? STATUS_COMPLETE : (($bf_batch["status"] == "Fermenting") ? STATUS_FERMENTATION : STATUS_BREWDAY)))) : STATUS_RECIPE,
+        ];
+        
+        if ($bf_recipe["type"] == "All Grain") {
+            $recipe["type"] = RECIPE_TYPE_ALLGRAIN;
+            // TBD: other types
+        }
+        if ($bf_recipe["style"] && ($bf_recipe["style"]["styleGuide"] == "BJCP 2015")) {
+            $recipe["bjcp2015_style_id"] = $bf_recipe["style"]["categoryNumber"] . $bf_recipe["style"]["styleLetter"];
+        }
+        if ($bf_recipe["style"] && $bf_recipe["style"]["name"]) {
+            $recipe["style"] = $bf_recipe["style"]["name"];
+        }
+
+        if ($bf_batch) {
+            foreach ($bf_batch["notes"] as $note) {
+                if ($note["status"] == "Archived") {
+                    $recipe["emptied_date"] = $this->secsToDate($note["timestamp"]);
+                }
+            }
+        }
+        
+        $d = 0;
+        foreach ($bf_recipe["fermentation"]["steps"] as $step) {
+            if (($step["type"] == "Conditioning") || ($step["type"] == "Carbonation")) {
+                $d += $step["stepTime"];
+            }
+        }
+        if ($d > 0) {
+            $recipe["age_days"] = $d;
+        }
+
+        // fermentables
+        foreach ($bf_recipe["fermentables"] as $f) {
+            array_push($recipe["fermentables"], [
+                "name" => $f["name"] . ($f["supplier"] ? ", " . $f["supplier"] : "") . ($f["origin"] ? ", " . $f["origin"] : ""),
+                "usage" => ($f["use"] == "First Wort") ? USAGE_FIRSTWORT : (($f["use"] == "Boil") ? (($f["time"] > 0) ? USAGE_BOIL : USAGE_FLAMEOUT) : (((! $f["use"]) || ($f["use"] == "Mash")) ? USAGE_MASH : (($f["use"] == "Flameout") ? USAGE_FLAMEOUT : (($f["use"] == "Primary") ? USAGE_PRIMARY : (($f["use"] == "Secondary") ? USAGE_SECONDARY : (($f["use"] == "Sparge") ? USAGE_SPARGE : USAGE_BOTTLE)))))),
+                "amount" => $f["amount"], // kg
+                "time" => $f["time"], // in case of boil
+                "type" => $f["type"],
+                "notes" => $f["notes"]
+            ]);
+        }
+            
+        // mash steps
+        foreach ($bf_recipe["mash"]["steps"] as $s) {
+            array_push($recipe["mash_steps"], [ 
+                "name" => $s["name"] . ($s["type"] != "Temperature" ? " (" . $s["type"] . ")" : ""),
+                "temp" => $s["stepTemp"], // °C
+                "time" => $s["stepTime"] // minutes
+            ]);
+        }
+
+        // hops
+        foreach ($bf_recipe["hops"] as $h) {
+            array_push($recipe["hops"], [ 
+                "name" => $h["name"],
+                "type" => $h["type"] == "Pellet" ? HOP_PELLET : HOP_LEAF, // TBD: other hop types
+                "usage" => $h["use"] == "First Wort" ? USAGE_FIRSTWORT : ($h["use"] == "Boil" ? ($h["time"] > 0 ? USAGE_BOIL : USAGE_FLAMEOUT) : ($h["use"] == "Mash" ? USAGE_MASH : ($h["use"] == "Aroma" ? USAGE_WHIRLPOOL : USAGE_PRIMARY))),
+                "alpha" => $h["alpha"],
+                "time" => $h["time"],
+                "amount" => $h["amount"],
+            ]);
+        }
+        
+        // adjuncts
+        foreach ($bf_recipe["miscs"] as $m) {
+            array_push($recipe["adjuncts"], [ 
+                "name" => $m["name"],
+                "usage" => ($m["use"] == "First Wort") ? USAGE_FIRSTWORT : (($m["use"] == "Boil") ? (($m["time"] > 0) ? USAGE_BOIL : USAGE_FLAMEOUT) : (($m["use"] == "Mash") ? USAGE_MASH : (($m["use"] == "Flameout") ? USAGE_FLAMEOUT : (($m["use"] == "Primary") ? USAGE_PRIMARY : (($m["use"] == "Secondary") ? USAGE_SECONDARY : (($m["use"] == "Sparge") ? USAGE_SPARGE : USAGE_BOTTLE)))))),
+                "type" => $m["type"],
+                "time" => $m["time"],
+                "amount" => $m["amount"],
+                "unit" => $m["unit"],
+            ]);
+        }
+
+        // yeasts
+        foreach ($bf_recipe["yeasts"] as $y) {
+            array_push($recipe["yeasts"], [ 
+                "name" => $y["name"] . ($y["productId"] ? ", " . $y["productId"] : "") . ($y["laboratory"] ? ", " . $y["laboratory"] : ""),
+                "type" => $y["type"] == "Ale" ? YEAST_ALE : YEAST_LAGER, // TBD: brewfather has more types
+                "form" => $y["form"] == "Dry" ? YEAST_FORM_DRY : YEAST_FORM_LIQUID, // TBD: Culture, Slurry
+                "attenuation" => $y["attenuation"],
+                "flocculation" => $y["flocculation"],
+                "temp_min" => $y["minTemp"],
+                "temp_max" => $y["maxTemp"],
+                "unit" => $y["unit"],
+                "amount" => $y["amount"],
+            ]);
+        }
+
+        
+        $content = $this->renderRecipe($recipe);
+        
+        return $content;
+    }
+    
+
+
+    function bf_recipes_shortcode($atts) {
+
+        $att = shortcode_atts (array(
+            'mode' => null,
+            'year' => null
+        ), $atts);
+
+        return $this->bf_process_table($att["mode"], $att["year"]);
+    }
+
+
+
+    function bf_process_table($mode, $year) {
+        
+        $content = "";
+
+        $content = "TBD";
+
+        return $content;
+    }
+
+    
+        
     function bs_recipe_shortcode($atts) {
 
     	$a = shortcode_atts (array(
@@ -2525,7 +3060,7 @@ class WP_Brewing {
     }
 
 
-
+    
     function bjcp_styleguide_shortcode($atts) {
 
         $id = $_GET['id'];
@@ -2556,6 +3091,8 @@ class WP_Brewing {
         return $this->renderStyle($param);
         
     }
+
+
     
 }
 

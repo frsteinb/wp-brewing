@@ -43,6 +43,8 @@ class WP_Brewing_Admin {
 	function options_init() {
 		register_setting( 'wp_brewing_group', 'wp_brewing_kbh_location', 'text' );
 		register_setting( 'wp_brewing_group', 'wp_brewing_kbh_cache', 'absint' );
+		register_setting( 'wp_brewing_group', 'wp_brewing_bf_location', 'text' );
+		register_setting( 'wp_brewing_group', 'wp_brewing_bf_cache', 'absint' );
 		register_setting( 'wp_brewing_group', 'wp_brewing_bs_location', 'text' );
 		register_setting( 'wp_brewing_group', 'wp_brewing_bs_cache', 'absint' );
 		register_setting( 'wp_brewing_group', 'wp_brewing_category', 'text' );
@@ -76,6 +78,22 @@ class WP_Brewing_Admin {
 			'wp_brewing_kbh_cache',
 			__( 'KBH Cache duration (seconds)', 'wp-brewing' ),
 			array( $this, 'kbh_cache_option' ),
+			'wp-brewing',
+			'wp_brewing_section'
+		);
+
+		add_settings_field(
+			'wp_brewing_bf_location',
+			__( 'Brewfather JSON Dump Location', 'wp-brewing' ),
+			array( $this, 'bf_location_option' ),
+			'wp-brewing',
+			'wp_brewing_section'
+		);
+
+		add_settings_field(
+			'wp_brewing_bf_cache',
+			__( 'Brewfather Cache duration (seconds)', 'wp-brewing' ),
+			array( $this, 'bf_cache_option' ),
 			'wp-brewing',
 			'wp_brewing_section'
 		);
@@ -201,6 +219,19 @@ class WP_Brewing_Admin {
 	function kbh_cache_option() {
 		?>
 		<input type="text" id="wp_brewing_kbh_cache" name="wp_brewing_kbh_cache" value="<?php echo get_option( 'wp_brewing_kbh_cache', 10*60 ); ?>" />
+		<?php
+	}
+
+	function bf_location_option() {
+		$location = get_option( 'wp_brewing_bf_location', "/tmp/Brewfather_EXPORT_ALL.json" );
+		?>
+		<input type="text" size="60" id="wp_brewing_bf_location" name="wp_brewing_bf_location" value="<?php echo get_option( 'wp_brewing_bf_location', "/... or https://..." ); ?>" />
+		<?php
+	}
+
+	function bf_cache_option() {
+		?>
+		<input type="text" id="wp_brewing_bf_cache" name="wp_brewing_bf_cache" value="<?php echo get_option( 'wp_brewing_bf_cache', 10*60 ); ?>" />
 		<?php
 	}
 
