@@ -73,6 +73,12 @@ define("FLOC_HIGH", 3);
 
 
 
+function recipe_lines_cmp($a, $b) {
+    return $a["key"] < $b["key"];
+}
+
+    
+
 function adjuncts_cmp($a, $b) {
     if ($a["usage"] < $b["usage"]) {
         return -1;
@@ -94,9 +100,13 @@ function gaben_cmp($a, $b) {
 
 class WP_Brewing {
 
+
+
     function __construct() {
         add_action('init', array($this, 'init'));
     }
+
+
 
     function init() {
         load_plugin_textdomain('wp-brewing', false, dirname(plugin_basename(__FILE__)) . '/languages/');
@@ -116,6 +126,9 @@ class WP_Brewing {
         if (is_admin()) {
             require_once(WP_BREWING_PATH . '/includes/admin.php');
         }
+
+        add_shortcode('brew-recipe', array($this, 'recipe_shortcode'));
+        add_shortcode('brew-recipes', array($this, 'recipes_shortcode'));
 
         add_shortcode('kbh-recipe', array($this, 'kbh_recipe_shortcode'));
         add_shortcode('kbh-recipes', array($this, 'kbh_recipes_shortcode'));
@@ -1076,958 +1089,962 @@ class WP_Brewing {
 
     
     function renderRecipe($recipe) {
+
+        $content = null;
         
-        $content .= $this->formatString(
-            '<table class="wp-brewing-recipe">
-               <style type="text/css">
-
-                 table.wp-brewing-recipe { font-size:11pt; }
-
-                 table.wp-brewing-recipe tr th { background:white; color:#333 }
-
-                 /* fix glossary link color on white heading line */
-                 table.wp-brewing-recipe tr th a.glossaryLink { color:#333 }
-                 table.wp-brewing-recipe tr th a.glossaryLink:hover { color:#333 }
-
-                 /* table.wp-brewing-recipe tr td { border:1px solid red } */
-                 table.wp-brewing-recipe tr th { padding-left:4px; width:68% }
-                 table.wp-brewing-recipe tr th+th { text-align:right; width:14% }
-                 table.wp-brewing-recipe tr th+th[colspan] { width:32%; text-align:right; padding-right:4px }
-                 table.wp-brewing-recipe tr th+th+th { padding-right:4px; width:18%; text-align:right }
-                 table.wp-brewing-recipe tr th[colspan] { text-align:center }
-                 table.wp-brewing-recipe tr th+th          { width:12% }
-
-
-
-                 table.wp-brewing-recipe tr td[colspan] { text-align:center }
-                 table.wp-brewing-recipe tr td+td { text-align:right }
-
-                 table.wp-brewing-recipe tr td+td[colspan] { width:32% }
-                 table.wp-brewing-recipe tr td+td          { width:14% }
-                 table.wp-brewing-recipe tr td+td+td       { width:18% }
-
-                 table.wp-brewing-recipe td span[data-cmtooltip] { color: #d0ffd0 }
-
-                 @media only screen and (max-width: 800px) {
-                   table.wp-brewing-recipe { font-size:9pt }
-                   table.wp-brewing-recipe tr th+th          { width:16% }
-                   table.wp-brewing-recipe tr td+td          { width:16% }
-                 }
-
-               </style>
-               <tr>
-                 <th>{name}</th>
-                 <th colspan="2">{brew_date}</th>
-               </tr>',
-            [
-                'name' => $recipe["name"],
-                'brew_date' => $recipe["brew_date"] ? $this->renderDate($recipe["brew_date"]) : "noch nicht gebraut"
-            ]);
-
-        if (strlen($recipe["description"]) > 0) {
+        if ($recipe) {
             $content .= $this->formatString(
-                '<tr>
-                   <td colspan="3">{value}</td>
-                 </tr>',
-                [
-                    'value' => $recipe["description"]
-                ]);
-        }
-        
-        if ($recipe["status"] > 0) {
-            $value = $this->statusWord($recipe["status"]);
-            $content .= $this->formatString(
-                '<tr>
-                   <td>Status</td>
-                   <td colspan="2">{value}</td>
-                 </tr>',
-                [
-                    'value' => $value
-                ]);
-        }
+                '<table class="wp-brewing-recipe">
+                   <style type="text/css">
 
-        if ($recipe["bjcp2015_style_id"]) {
-            $content .= $this->formatString(
-                '<tr>
-                   <td>Stil gemäß BJCP Guidelines (2015)</td>
-                   <!--<td colspan="2"><span data-cmtooltip=\'{tt}\'><a href="/bjcp-styleguide?id={style_id}">{style_id}</a></span></td>-->
-                   <!--<td colspan="2"><span data-cmtooltip=\'{style_id}\'><a href="/bjcp-styleguide?id={style_id}">{name}</a></span></td>-->
-                   <td colspan="2">{name}</td> <!-- finally we rely on the auto-generated glossary posts -->
-                 </tr>',
-                [
-                    'style_id' => $recipe["bjcp2015_style_id"],
-                    'name' => $this->renderStyleName($recipe["bjcp2015_style_id"]),
-                    'tt' => $this->renderStyleName($recipe["bjcp2015_style_id"])
-                ]);
-        } elseif ($recipe["style"]) {
-            $content .= $this->formatString(
-                '<tr>
-                   <td>Stil</td>
-                   <td colspan="2">{name}</td>
-                 </tr>',
-                [
-                    'name' => $recipe["style"],
-                ]);
-        }
+                     table.wp-brewing-recipe { font-size:11pt; }
 
-        if (($recipe["planned_batch_volume"] > 0) || ($recipe["bottled_volume"] > 0)) {
-            $tt = null;
-            if ($recipe["planned_batch_volume"] > 0) {
-                $value = number_format($recipe["planned_batch_volume"], 1, ",", ".");
-                $label = "Geplante Ausschlagmenge";
-                $tt = $label . ": " . $value . " Liter (" . number_format($this->lToGal($recipe["planned_batch_volume"]), 2, ",", ".") . " gal)" . ($tt ? (",<br/>" . $tt) : "");
-            }
-            if ($recipe["bottled_volume"] > 0) {
-                $value = number_format($recipe["bottled_volume"], 1, ",", ".");
-                $label = "Abgefüllte Biermenge";
-                $tt = $label . ": " . $value . " Liter (" . number_format($this->lToGal($recipe["bottled_volume"]), 2, ",", ".") . " gal)" . ($tt ? (",<br/>" . $tt) : "");
-            }
-            $content .= $this->formatString(
-                '<tr>
-                   <td>{label}</td>
-                   <td colspan="2"><span data-cmtooltip="{tt}">{value} Liter</span></td>
-                 </tr>',
-                [
-                    'label' => $label,
-                    'value' => $value,
-                    'tt' => $tt
-                ]);
-        }
+                     table.wp-brewing-recipe tr th { background:white; color:#333 }
 
-        if ($recipe["containers"]) {
-            $content .= $this->formatString(
-                '<tr>
-                  <td>Gebinde</td>
-                  <td colspan="2">{containers}</td>
-                </tr>',
-                [
-                    'containers' => $recipe["containers"]
-                ]);
-        }
+                     /* fix glossary link color on white heading line */
+                     table.wp-brewing-recipe tr th a.glossaryLink { color:#333 }
+                     table.wp-brewing-recipe tr th a.glossaryLink:hover { color:#333 }
 
-        if ($recipe["pack_color"]) {
-            $content .= $this->formatString(
-                '<tr>
-                  <td>Kronkorkenfarbe</td>
-                  <td colspan="2">{pack_color}</td>
-                </tr>',
-                [
-                    'pack_color' => $recipe["pack_color"]
-                ]);
-        }
+                     /* table.wp-brewing-recipe tr td { border:1px solid red } */
+                     table.wp-brewing-recipe tr th { padding-left:4px; width:68% }
+                     table.wp-brewing-recipe tr th+th { text-align:right; width:14% }
+                     table.wp-brewing-recipe tr th+th[colspan] { width:32%; text-align:right; padding-right:4px }
+                     table.wp-brewing-recipe tr th+th+th { padding-right:4px; width:18%; text-align:right }
+                     table.wp-brewing-recipe tr th[colspan] { text-align:center }
+                     table.wp-brewing-recipe tr th+th          { width:12% }
 
-        if ($recipe["stock"]) {
-            $content .= $this->formatString(
-                '<tr>
-                   <td>Restbestand</td>
-                   <td colspan="2">{stock}</td>
-                 </tr>',
-                [
-                    'stock' => ($recipe["stock"]) ? $recipe["stock"] : "0"
-                ]);
-        }
 
-        if ($recipe["og"] or $recipe["planned_og"]) {
-            $tt = null;
-            if ($recipe["planned_og"]) {
-                $value = number_format($this->sgToPlato($recipe["planned_og"]), 1, ",", ".");
-                $label = "Geplante Stammwürze";
-                $tt = $label . ": " . $value . " °P (OG " . number_format($recipe["planned_og"], 3, ",", ".") . ")" . ($tt ? (",<br/>" . $tt) : "");
-            }
-            if ($recipe["og"]) {
-                $value = number_format($this->sgToPlato($recipe["og"]), 1, ",", ".");
-                $label = "Erzielte Stammwürze";
-                $tt = $label . ": " . $value . " °P (OG " . number_format($recipe["og"], 3, ",", ".") . ")" . ($tt ? (",<br/>" . $tt) : "");
-            }
-            $content .= $this->formatString(
-                '<tr>
-                   <td>{label}</td>
-                   <td colspan="2"><span data-cmtooltip="{tt}">{value}</span> °P</td>
-                 </tr>',
-                [
-                    'label' => $label,
-                    'value' => $value,
-                    'tt' => $tt
-                ]);
-        }
-        
-        if ($recipe["fg"] or $recipe["estimated_fg"] or $recipe["current_g"]) {
-            $tt = null;
-            if ($recipe["current_g"]) {
-                $value = number_format($this->sgToPlato($recipe["current_g"]), 1, ",", ".");
-                $label = "Bisheriger Restextrakt";
-                $tt = $label . ": " . $value . " GG% (SG " . number_format($recipe["current_g"], 3, ",", ".") . ")" . ($tt ? (",<br/>" . $tt) : "");
-            }
-            if ($recipe["estimated_fg"]) {
-                $value = number_format($this->sgToPlato($recipe["estimated_fg"]), 1, ",", ".");
-                $label = "Erwarteter Restextrakt";
-                $tt = $label . ": " . $value . " GG% (FG " . number_format($recipe["estimated_fg"], 3, ",", ".") . ")" . ($tt ? (",<br/>" . $tt) : "");
-            }
-            if ($recipe["fg"]) {
-                $value = number_format($this->sgToPlato($recipe["fg"]), 1, ",", ".");
-                $label = "Gemessener Restextrakt";
-                $tt = $label . ": " . $value . " GG% (FG " . number_format($recipe["fg"], 3, ",", ".") . ")" . ($tt ? (",<br/>" . $tt) : "");
-            }
-            $content .= $this->formatString(
-                '<tr>
-                   <td>{label}</td>
-                   <td colspan="2"><span data-cmtooltip="{tt}">{value} GG%</span></td>
-                 </tr>',
-                [
-                    'label' => $label,
-                    'value' => $value,
-                    'tt' => $tt
-                ]);
-        }
-        
-        if ($recipe["abv"] or (($recipe["og"] or $recipe["planned_og"]) and ($recipe["fg"] or $recipe["current_g"] or $recipe["estimated_fg"]))) {
-            $tt = null;
-            if ((! $this->calcAbv($recipe["planned_og"], $recipe["estimated_fg"])) && (! $this->calcAbv($recipe["og"], $recipe["fg"])) && (! $this->calcAbv($recipe["og"], $recipe["fg"]))) {
-                $value = number_format($this->calcAbv($recipe["og"], $recipe["current_g"]), 1, ",", ".");
-                $label = "Bisheriger Alkohol";
-                $tt = $label . ": " . $value . " %vol, " . number_format($this->calcAbw($recipe["og"], $recipe["current_g"]), 1, ",", ".") . " %gew" . ($tt ? (",<br/>" . $tt) : "");
-            }
-            if ($this->calcAbv($recipe["planned_og"], $recipe["estimated_fg"])) {
-                $value = number_format($this->calcAbv($recipe["planned_og"], $recipe["estimated_fg"]), 1, ",", ".");
-                $label = "Erwarteter Alkohol";
-                $tt = $label . ": " . $value . " %vol, " . number_format($this->calcAbw($recipe["planned_og"], $recipe["estimated_fg"]), 1, ",", ".") . " %gew" . ($tt ? (",<br/>" . $tt) : "");
-            }
-            if ($this->calcAbv($recipe["og"], $recipe["fg"])) {
-                $value = number_format($this->calcAbv($recipe["og"], $recipe["fg"]), 1, ",", ".");
-                $label = "Berechneter Alkohol ohne Nachgärung" . $t;
-                $tt = $label . ": " . $value . " %vol, " . number_format($this->calcAbw($recipe["og"], $recipe["fg"]), 1, ",", ".") . " %gew" . ($tt ? (",<br/>" . $tt) : "");
-            }
-            if ($recipe["abv"]) {
-                $value = number_format($recipe["abv"], 1, ",", ".");
-                $label = "Alkohol";
-                $tt = "Von Brausoftware übermittelter " . $label . ": " . $value . " %vol" . ($tt ? (",<br/>" . $tt) : "");
-            }
-            $content .= $this->formatString(
-                '<tr>
-                   <td>{label}</td>
-                   <td colspan="2"><span data-cmtooltip="{tt}">{value} %vol</span></td>
-                 </tr>',
-                [
-                    'label' => $label,
-                    'value' => $value,
-                    'tt' => $tt
-                ]);
-        }
-        
-        if ($recipe["ibu"]) {
-            $tt = "";
-            if (($recipe["og"] || $recipe["planned_og"])) {
-                $og = $recipe["og"] ? $recipe["og"] : $recipe["planned_og"];
-                $fg = $recipe["fg"] ? $recipe["fg"] : ($recipe["estimated_fg"] ? $recipe["estimated_fg"] : $recipe["current_g"]);
-                $value = $recipe["ibu"] / $this->sgToPlato($og);
-                $bugu = $recipe["ibu"] / (($og - 1.0) * 1000.0);
-                if ($value < 1.5) { $descr = "sehr malzig"; }
-                elseif ($value < 2.0) { $descr = "malzig"; }
-                elseif ($value < 2.2) { $descr = "ausgewogen"; } // "mild bis ausgewogen"
-                elseif ($value < 3.0) { $descr = "herb"; }
-                elseif ($value < 6.0) { $descr = "sehr herb"; }
-                else { $descr = "Hopfenbombe"; }
-                # Relative Bitterness Ratio (http://www.madalchemist.com/relative_bitterness.html)
-                $adf = ($this->sgToPlato($og) - $this->sgToPlato($fg)) * 100 / $this->sgToPlato($og);
-                $rbr = $bugu * (1 + (($adf / 100) - 0.7655));
-                $tt = "IBU: " . number_format($recipe["ibu"], 0, ",", ".") . "<br/>Bittereindruck: " . number_format($value, 1, ",", ".") . " - " . $descr . "<br/>BU:GU: " . number_format($bugu, 2, ",", ".") . "<br/>Ralative Bitterness Ratio: " . number_format($rbr, 2, ",", ".");
-            }
-            $content .= $this->formatString(
-                '<tr>
-                   <td>Berechnete Bittere</td>
-                   <td colspan="2"><span data-cmtooltip="{tt}">{ibu}</span> IBU</td>
-                 </tr>',
-                [
-                    'ibu' => number_format($recipe["ibu"], 0, ",", "."),
-                    'tt' => $tt
-                ]);
-        }
-        
-        if ($recipe["ebc"]) {
-            $rgb = $this->ebcToRgb($recipe["ebc"]);
-            $content .= $this->formatString(
-                '<tr>
-                   <td>Berechnete Farbe</td>
-                   <td colspan="2"><span data-cmtooltip="{tt}">{ebc}</span> EBC &nbsp;<span style="border:1px solid white; background-color:rgb({r},{g},{b});">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;</span></td>
-                 </tr>',
-                [
-                    'ebc' => number_format($recipe["ebc"], 0, ",", "."),
-                    'tt' => number_format($this->ebcToSrm($recipe["ebc"]), 1, ",", ".") . " SRM, " . number_format($this->ebcToLovibond($recipe["ebc"]), 2, ",", ".") . " °L",
-                    'r' => $rgb[0],
-                    'g' => $rgb[1],
-                    'b' => $rgb[2]
-                ]);
-        }
-        
-        if ($recipe["calories"]) {
-            $content .= $this->formatString(
-                '<tr>
-                   <td>{prefix}Energiegehalt</td>
-                   <td colspan="2"><span data-cmtooltip="{tt}">{kcal} kcal/100ml</span></td>
-                 </tr>',
-                [
-                    'prefix' => $recipe["status"] < STATUS_BOTTLED ? "Voraussichtlicher " : "",
-                    'kcal' => number_format($recipe["calories"], 0, ",", "."),
-                    'tt' => number_format($this->calToJoule($recipe["calories"]), 0, ",", ".") . " kJ/100ml"
-                ]);
-        }
 
-        if ($recipe["drink_temp"]) {
-            $content .= $this->formatString(
-                '<tr>
-                   <td>Trinktemperatur</td>
-                   <td colspan="2"><span data-cmtooltip="{tt}">{temp} °C</span></td>
-                 </tr>',
-                [
-                    'temp' => number_format($recipe["drink_temp"], 0, ",", "."),
-                    'tt' => number_format($this->cToF($recipe["drink_temp"]), 0, ",", ".") . " °F"
-                ]);
-        }
+                     table.wp-brewing-recipe tr td[colspan] { text-align:center }
+                     table.wp-brewing-recipe tr td+td { text-align:right }
 
-        if ($recipe["song"]) {
-            $content .= $this->formatString(
-                '<tr>
-                   <td>Song zum Bier</td>
-                   <td colspan="2">{song}</td>
-                 </tr>',
-                [
-                    'song' => $recipe["song_url"] ? '<a href="' . $recipe["song_url"] . '">' . $recipe["song"] . "</a>" : $recipe["song"]
-                ]);
-        }
-            $rendered_name = $h["name"];
-            if (strlen($h["url"]) >= 1) {
-                $rendered_name = '<a href="' . $h["url"] . '">' . $rendered_name . '</a>';
-            }
+                     table.wp-brewing-recipe tr td+td[colspan] { width:32% }
+                     table.wp-brewing-recipe tr td+td          { width:14% }
+                     table.wp-brewing-recipe tr td+td+td       { width:18% }
 
-        // mash (fermentables, hops, adjuncts)
-        if ($recipe["fermentables"]) {
-            $grainsum = 0;
-            foreach ($recipe["fermentables"] as $f) {
-                $grainsum = $grainsum + $f["amount"];
-            }
-            $content .= $this->formatString(
-                '<tr>
-                   <th>Schüttung / Maischen</th>
-                   <th colspan="2"><span data-cmtooltip="{tt}">{grainsum} kg</span></th>
-                 </tr>',
+                     table.wp-brewing-recipe td span[data-cmtooltip] { color: #d0ffd0 }
+
+                     @media only screen and (max-width: 800px) {
+                       table.wp-brewing-recipe { font-size:9pt }
+                       table.wp-brewing-recipe tr th+th          { width:16% }
+                       table.wp-brewing-recipe tr td+td          { width:16% }
+                     }
+
+                   </style>
+                   <tr>
+                     <th>{name}</th>
+                     <th colspan="2">{brew_date}</th>
+                   </tr>',
                 [
-                    'grainsum' => number_format($grainsum, 3, ",", "."),
-                    'tt' => number_format($this->kgToLb($grainsum), 3, ".", ",") . " lb"
+                    'name' => $recipe["name"],
+                    'brew_date' => $recipe["brew_date"] ? $this->renderDate($recipe["brew_date"]) : "noch nicht gebraut"
                 ]);
-            foreach ($recipe["fermentables"] as $f) {
-                if ($f["usage"] != USAGE_MASH) continue;
-                $rendered_name = $f["name"];
-                if (strlen($f["url"]) >= 1) {
-                    $rendered_name = '<a href="' . $f["url"] . '">' . $rendered_name . '</a>';
-                }
-                $percent = ($f["amount"] / $grainsum) * 100;
-    			$content .= $this->formatString(
+
+            if (strlen($recipe["description"]) > 0) {
+                $content .= $this->formatString(
                     '<tr>
-                       <td>{rendered_name}</td>
-                       <td>{percent} %</td>
-                       <td style="text-align:right"><span data-cmtooltip="{tt_amount}">{amount} kg</span></td>
+                       <td colspan="3">{value}</td>
                      </tr>',
                     [
-                        'rendered_name' => $rendered_name,
-                        'percent' => $percent == 100 ? "100" : number_format($percent, 1, ",", "."),
-                        'amount' => number_format($f["amount"], 3, ",", "."),
-                        'tt_amount' => number_format($this->kgToLb($f["amount"]), 3, ",", ".") . " lb"
+                        'value' => $recipe["description"]
                     ]);
             }
-            foreach ($recipe["adjuncts"] as $a) {
-                if ($a["usage"] != USAGE_MASH) continue;
-                $rendered_name = $a["name"];
-                if (strlen($a["url"]) >= 1) {
-                    $rendered_name = '<a href="' . $a["url"] . '">' . $rendered_name . '</a>';
-                }
-                $unit = $a["unit"];
-                if ($unit == "kg") {
-                    $dose = number_format($a["amount"] / $recipe["planned_batch_volume"] * 1000, 0, ",", ".") . " " . "g" . "/l";
-                } else {
-                    $dose = number_format($a["amount"] / $recipe["planned_batch_volume"], 3, ",", ".") . " " . $unit . "/l";
-                }
-    			$content .= $this->formatString(
+            
+            if ($recipe["status"] > 0) {
+                $value = $this->statusWord($recipe["status"]);
+                $content .= $this->formatString(
                     '<tr>
-                       <td>{rendered_name}</td>
-                       <td>{dose}</td>
-                       <td style="text-align:right"><span data-cmtooltip="{tt_amount}">{amount} {unit}</span></td>
+                       <td>Status</td>
+                       <td colspan="2">{value}</td>
                      </tr>',
                     [
-                        'rendered_name' => $rendered_name,
-                        'dose' => $dose,
-                        'amount' => number_format($a["amount"], ($unit == "g" ? 0 : 3), ",", "."),
-                        'unit' => $unit,
-                        'tt_amount' => ($unit == "g") ? number_format($this->gToOz($a["amount"]), 2, ",", ".") . " oz" : ""
+                        'value' => $value
                     ]);
             }
-            // TBD: hops during mash? not really required. :-)
-        }
 
-        if ($recipe["planned_residual_alkalinity"]) {
-            $content .= $this->formatString(
-                '<tr>
-                   <td>geplante Brauwasser-Restalkalität</td>
-                   <td colspan="2"><span data-cmtooltip="{tt}">{value} °dH</span></td>
-                 </tr>',
-                [
-                    'value' => number_format($this->ppmToDh($recipe["planned_residual_alkalinity"]), 1, ",", "."),
-                    'tt' => number_format($recipe["planned_residual_alkalinity"], 1, ",", ".") . " ppm"
-                ]);
-        }
-
-        if ($recipe["mash_ph"]) {
-            $content .= $this->formatString(
-                '<tr>
-                   <td>Maische pH-Wert</td>
-                   <td colspan="2">{ph}</td>
-                 </tr>',
-                [
-                    'ph' => number_format($recipe["mash_ph"], 1, ",", ".")
-                ]);
-        }
-        
-        if ($recipe["mash_water_volume"]) {
-            $content .= $this->formatString(
-                '<tr>
-                   <td>Hauptguss &amp; Einmaischen</td>
-                   <td><span data-cmtooltip="{tt_temp}">{temp} °C</span></td>
-                   <td><span data-cmtooltip="{tt_vol}">{vol} Liter</span></td>
-                 </tr>',
-                [
-                    'temp' => number_format($recipe["mash_in_temp"], 0, ",", "."),
-                    'tt_temp' => number_format($this->cToF($recipe["mash_in_temp"]), 0, ",", ".") . " °F",
-                    'vol' => number_format($recipe["mash_water_volume"], 1, ",", "."),
-                    'tt_vol' => number_format($this->lToGal($recipe["mash_water_volume"]), 2, ",", ".") . " gal"
-                ]);
-        }
-
-        $sparge_water_temp = 78; // default
-        if ($recipe["mash_steps"]) {
-            foreach ($recipe["mash_steps"] as $m) {
-    			$content .= $this->formatString(
+            if ($recipe["bjcp2015_style_id"]) {
+                $content .= $this->formatString(
                     '<tr>
-                       <td>{name}</td>
-                       <td><span data-cmtooltip="{tt}">{temp} °C</span></td>
-                       <td>{time} Minuten</td>
+                       <td>Stil gemäß BJCP Guidelines (2015)</td>
+                       <!--<td colspan="2"><span data-cmtooltip=\'{tt}\'><a href="/bjcp-styleguide?id={style_id}">{style_id}</a></span></td>-->
+                       <!--<td colspan="2"><span data-cmtooltip=\'{style_id}\'><a href="/bjcp-styleguide?id={style_id}">{name}</a></span></td>-->
+                       <td colspan="2">{name}</td> <!-- finally we rely on the auto-generated glossary posts -->
                      </tr>',
                     [
-                        'name' => $m["name"],
-                        'temp' => number_format($m["temp"], 0, ",", "."),
-                        'time' => number_format($m["time"], 0, ",", "."),
-                        'tt' => number_format($this->cToF($m["temp"]), 0, ",", ".") . " °F"
+                        'style_id' => $recipe["bjcp2015_style_id"],
+                        'name' => $this->renderStyleName($recipe["bjcp2015_style_id"]),
+                        'tt' => $this->renderStyleName($recipe["bjcp2015_style_id"])
                     ]);
-                $sparge_water_temp = $m["temp"];
+            } elseif ($recipe["style"]) {
+                $content .= $this->formatString(
+                    '<tr>
+                       <td>Stil</td>
+                       <td colspan="2">{name}</td>
+                     </tr>',
+                    [
+                        'name' => $recipe["style"],
+                    ]);
             }
-        }
 
-        if ($recipe["sparge_water_volume"]) {
-            $content .= $this->formatString(
-                '<tr>
-                   <td>Nachguss</td>
-                   <td><span data-cmtooltip="{tt_temp}">{temp} °C</span></td>
-                   <td><span data-cmtooltip="{tt_vol}">{vol} Liter</span></td>
-                 </tr>',
-                [
-                    'temp' => number_format($sparge_water_temp, 0, ",", "."),
-                    'tt_temp' => number_format($this->cToF($sparge_water_temp), 0, ",", ".") . " °F",
-                    'vol' => number_format($recipe["sparge_water_volume"], 1, ",", "."),
-                    'tt_vol' => number_format($this->lToGal($recipe["sparge_water_volume"]), 2, ",", ".") . " gal"
-                ]);
-        }
+            if (($recipe["planned_batch_volume"] > 0) || ($recipe["bottled_volume"] > 0)) {
+                $tt = null;
+                if ($recipe["planned_batch_volume"] > 0) {
+                    $value = number_format($recipe["planned_batch_volume"], 1, ",", ".");
+                    $label = "Geplante Ausschlagmenge";
+                    $tt = $label . ": " . $value . " Liter (" . number_format($this->lToGal($recipe["planned_batch_volume"]), 2, ",", ".") . " gal)" . ($tt ? (",<br/>" . $tt) : "");
+                }
+                if ($recipe["bottled_volume"] > 0) {
+                    $value = number_format($recipe["bottled_volume"], 1, ",", ".");
+                    $label = "Abgefüllte Biermenge";
+                    $tt = $label . ": " . $value . " Liter (" . number_format($this->lToGal($recipe["bottled_volume"]), 2, ",", ".") . " gal)" . ($tt ? (",<br/>" . $tt) : "");
+                }
+                $content .= $this->formatString(
+                    '<tr>
+                       <td>{label}</td>
+                       <td colspan="2"><span data-cmtooltip="{tt}">{value} Liter</span></td>
+                     </tr>',
+                    [
+                        'label' => $label,
+                        'value' => $value,
+                        'tt' => $tt
+                    ]);
+            }
 
-        if ($recipe["boil_time"] > 0) {
-    		$content .= $this->formatString(
-                '<tr>
-                   <th>Würzekochen</th>
-                   <th colspan="2">{time} Minuten</th>
-                 </tr>',
-                [
-                    'time' => number_format($recipe["boil_time"], 0, ",", ".")
-                ]);
-            $rows = [];
-            foreach ($recipe["hops"] as $h) {
-                if (($h["usage"] < USAGE_FIRSTWORT) || ($h["usage"] > USAGE_WHIRLPOOL)) continue;
+            if ($recipe["containers"]) {
+                $content .= $this->formatString(
+                    '<tr>
+                      <td>Gebinde</td>
+                      <td colspan="2">{containers}</td>
+                    </tr>',
+                    [
+                        'containers' => $recipe["containers"]
+                    ]);
+            }
+
+            if ($recipe["pack_color"]) {
+                $content .= $this->formatString(
+                    '<tr>
+                      <td>Kronkorkenfarbe</td>
+                      <td colspan="2">{pack_color}</td>
+                    </tr>',
+                    [
+                        'pack_color' => $recipe["pack_color"]
+                    ]);
+            }
+
+            if ($recipe["stock"]) {
+                $content .= $this->formatString(
+                    '<tr>
+                       <td>Restbestand</td>
+                       <td colspan="2">{stock}</td>
+                     </tr>',
+                    [
+                        'stock' => ($recipe["stock"]) ? $recipe["stock"] : "0"
+                    ]);
+            }
+
+            if ($recipe["og"] or $recipe["planned_og"]) {
+                $tt = null;
+                if ($recipe["planned_og"]) {
+                    $value = number_format($this->sgToPlato($recipe["planned_og"]), 1, ",", ".");
+                    $label = "Geplante Stammwürze";
+                    $tt = $label . ": " . $value . " °P (OG " . number_format($recipe["planned_og"], 3, ",", ".") . ")" . ($tt ? (",<br/>" . $tt) : "");
+                }
+                if ($recipe["og"]) {
+                    $value = number_format($this->sgToPlato($recipe["og"]), 1, ",", ".");
+                    $label = "Erzielte Stammwürze";
+                    $tt = $label . ": " . $value . " °P (OG " . number_format($recipe["og"], 3, ",", ".") . ")" . ($tt ? (",<br/>" . $tt) : "");
+                }
+                $content .= $this->formatString(
+                    '<tr>
+                       <td>{label}</td>
+                       <td colspan="2"><span data-cmtooltip="{tt}">{value}</span> °P</td>
+                     </tr>',
+                    [
+                        'label' => $label,
+                        'value' => $value,
+                        'tt' => $tt
+                    ]);
+            }
+            
+            if ($recipe["fg"] or $recipe["estimated_fg"] or $recipe["current_g"]) {
+                $tt = null;
+                if ($recipe["current_g"]) {
+                    $value = number_format($this->sgToPlato($recipe["current_g"]), 1, ",", ".");
+                    $label = "Bisheriger Restextrakt";
+                    $tt = $label . ": " . $value . " GG% (SG " . number_format($recipe["current_g"], 3, ",", ".") . ")" . ($tt ? (",<br/>" . $tt) : "");
+                }
+                if ($recipe["estimated_fg"]) {
+                    $value = number_format($this->sgToPlato($recipe["estimated_fg"]), 1, ",", ".");
+                    $label = "Erwarteter Restextrakt";
+                    $tt = $label . ": " . $value . " GG% (FG " . number_format($recipe["estimated_fg"], 3, ",", ".") . ")" . ($tt ? (",<br/>" . $tt) : "");
+                }
+                if ($recipe["fg"]) {
+                    $value = number_format($this->sgToPlato($recipe["fg"]), 1, ",", ".");
+                    $label = "Gemessener Restextrakt";
+                    $tt = $label . ": " . $value . " GG% (FG " . number_format($recipe["fg"], 3, ",", ".") . ")" . ($tt ? (",<br/>" . $tt) : "");
+                }
+                $content .= $this->formatString(
+                    '<tr>
+                       <td>{label}</td>
+                       <td colspan="2"><span data-cmtooltip="{tt}">{value} GG%</span></td>
+                     </tr>',
+                    [
+                        'label' => $label,
+                        'value' => $value,
+                        'tt' => $tt
+                    ]);
+            }
+            
+            if ($recipe["abv"] or (($recipe["og"] or $recipe["planned_og"]) and ($recipe["fg"] or $recipe["current_g"] or $recipe["estimated_fg"]))) {
+                $tt = null;
+                if ((! $this->calcAbv($recipe["planned_og"], $recipe["estimated_fg"])) && (! $this->calcAbv($recipe["og"], $recipe["fg"])) && (! $this->calcAbv($recipe["og"], $recipe["fg"]))) {
+                    $value = number_format($this->calcAbv($recipe["og"], $recipe["current_g"]), 1, ",", ".");
+                    $label = "Bisheriger Alkohol";
+                    $tt = $label . ": " . $value . " %vol, " . number_format($this->calcAbw($recipe["og"], $recipe["current_g"]), 1, ",", ".") . " %gew" . ($tt ? (",<br/>" . $tt) : "");
+                }
+                if ($this->calcAbv($recipe["planned_og"], $recipe["estimated_fg"])) {
+                    $value = number_format($this->calcAbv($recipe["planned_og"], $recipe["estimated_fg"]), 1, ",", ".");
+                    $label = "Erwarteter Alkohol";
+                    $tt = $label . ": " . $value . " %vol, " . number_format($this->calcAbw($recipe["planned_og"], $recipe["estimated_fg"]), 1, ",", ".") . " %gew" . ($tt ? (",<br/>" . $tt) : "");
+                }
+                if ($this->calcAbv($recipe["og"], $recipe["fg"])) {
+                    $value = number_format($this->calcAbv($recipe["og"], $recipe["fg"]), 1, ",", ".");
+                    $label = "Berechneter Alkohol ohne Nachgärung" . $t;
+                    $tt = $label . ": " . $value . " %vol, " . number_format($this->calcAbw($recipe["og"], $recipe["fg"]), 1, ",", ".") . " %gew" . ($tt ? (",<br/>" . $tt) : "");
+                }
+                if ($recipe["abv"]) {
+                    $value = number_format($recipe["abv"], 1, ",", ".");
+                    $label = "Alkohol";
+                    $tt = "Von Brausoftware übermittelter " . $label . ": " . $value . " %vol" . ($tt ? (",<br/>" . $tt) : "");
+                }
+                $content .= $this->formatString(
+                    '<tr>
+                       <td>{label}</td>
+                       <td colspan="2"><span data-cmtooltip="{tt}">{value} %vol</span></td>
+                     </tr>',
+                    [
+                        'label' => $label,
+                        'value' => $value,
+                        'tt' => $tt
+                    ]);
+            }
+            
+            if ($recipe["ibu"]) {
+                $tt = "";
+                if (($recipe["og"] || $recipe["planned_og"])) {
+                    $og = $recipe["og"] ? $recipe["og"] : $recipe["planned_og"];
+                    $fg = $recipe["fg"] ? $recipe["fg"] : ($recipe["estimated_fg"] ? $recipe["estimated_fg"] : $recipe["current_g"]);
+                    $value = $recipe["ibu"] / $this->sgToPlato($og);
+                    $bugu = $recipe["ibu"] / (($og - 1.0) * 1000.0);
+                    if ($value < 1.5) { $descr = "sehr malzig"; }
+                    elseif ($value < 2.0) { $descr = "malzig"; }
+                    elseif ($value < 2.2) { $descr = "ausgewogen"; } // "mild bis ausgewogen"
+                    elseif ($value < 3.0) { $descr = "herb"; }
+                    elseif ($value < 6.0) { $descr = "sehr herb"; }
+                    else { $descr = "Hopfenbombe"; }
+                    # Relative Bitterness Ratio (http://www.madalchemist.com/relative_bitterness.html)
+                    $adf = ($this->sgToPlato($og) - $this->sgToPlato($fg)) * 100 / $this->sgToPlato($og);
+                    $rbr = $bugu * (1 + (($adf / 100) - 0.7655));
+                    $tt = "IBU: " . number_format($recipe["ibu"], 0, ",", ".") . "<br/>Bittereindruck: " . number_format($value, 1, ",", ".") . " - " . $descr . "<br/>BU:GU: " . number_format($bugu, 2, ",", ".") . "<br/>Ralative Bitterness Ratio: " . number_format($rbr, 2, ",", ".");
+                }
+                $content .= $this->formatString(
+                    '<tr>
+                       <td>Berechnete Bittere</td>
+                       <td colspan="2"><span data-cmtooltip="{tt}">{ibu}</span> IBU</td>
+                     </tr>',
+                    [
+                        'ibu' => number_format($recipe["ibu"], 0, ",", "."),
+                        'tt' => $tt
+                    ]);
+            }
+            
+            if ($recipe["ebc"]) {
+                $rgb = $this->ebcToRgb($recipe["ebc"]);
+                $content .= $this->formatString(
+                    '<tr>
+                       <td>Berechnete Farbe</td>
+                       <td colspan="2"><span data-cmtooltip="{tt}">{ebc}</span> EBC &nbsp;<span style="border:1px solid white; background-color:rgb({r},{g},{b});">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;</span></td>
+                     </tr>',
+                    [
+                        'ebc' => number_format($recipe["ebc"], 0, ",", "."),
+                        'tt' => number_format($this->ebcToSrm($recipe["ebc"]), 1, ",", ".") . " SRM, " . number_format($this->ebcToLovibond($recipe["ebc"]), 2, ",", ".") . " °L",
+                        'r' => $rgb[0],
+                        'g' => $rgb[1],
+                        'b' => $rgb[2]
+                    ]);
+            }
+            
+            if ($recipe["calories"]) {
+                $content .= $this->formatString(
+                    '<tr>
+                       <td>{prefix}Energiegehalt</td>
+                       <td colspan="2"><span data-cmtooltip="{tt}">{kcal} kcal/100ml</span></td>
+                     </tr>',
+                    [
+                        'prefix' => $recipe["status"] < STATUS_BOTTLED ? "Voraussichtlicher " : "",
+                        'kcal' => number_format($recipe["calories"], 0, ",", "."),
+                        'tt' => number_format($this->calToJoule($recipe["calories"]), 0, ",", ".") . " kJ/100ml"
+                    ]);
+            }
+
+            if ($recipe["drink_temp"]) {
+                $content .= $this->formatString(
+                    '<tr>
+                       <td>Trinktemperatur</td>
+                       <td colspan="2"><span data-cmtooltip="{tt}">{temp} °C</span></td>
+                     </tr>',
+                    [
+                        'temp' => number_format($recipe["drink_temp"], 0, ",", "."),
+                        'tt' => number_format($this->cToF($recipe["drink_temp"]), 0, ",", ".") . " °F"
+                    ]);
+            }
+
+            if ($recipe["song"]) {
+                $content .= $this->formatString(
+                    '<tr>
+                       <td>Song zum Bier</td>
+                       <td colspan="2">{song}</td>
+                     </tr>',
+                    [
+                        'song' => $recipe["song_url"] ? '<a href="' . $recipe["song_url"] . '">' . $recipe["song"] . "</a>" : $recipe["song"]
+                    ]);
+            }
                 $rendered_name = $h["name"];
                 if (strlen($h["url"]) >= 1) {
                     $rendered_name = '<a href="' . $h["url"] . '">' . $rendered_name . '</a>';
                 }
-                $rendered_type = "";
-                switch ($h["type"]) {
-                case HOP_LEAF: $rendered_type = ", Dolden"; break;
-                case HOP_PLUG: $rendered_type = ", Plugs"; break;
-                case HOP_PELLET: $rendered_type = ", Pellets"; break;
-                case HOP_EXTRACT: $rendered_type = ", Extrakt"; break;
-                default: $rendered_type = ", (?)";
+
+            // mash (fermentables, hops, adjuncts)
+            if ($recipe["fermentables"]) {
+                $grainsum = 0;
+                foreach ($recipe["fermentables"] as $f) {
+                    $grainsum = $grainsum + $f["amount"];
                 }
-                $rendered_alpha = "";
-                if ($h["alpha"] > 0) {
-                    $rendered_alpha = ", " . number_format($h["alpha"], 1, ",", ".") . " %α";
-                }
-                $rendered_time = "";
-                switch ($h["usage"]) {
-                case USAGE_MASH: $rendered_time = "Maische"; break;
-                case USAGE_FIRSTWORT: $rendered_time = "Vorderwürze"; break;
-                case USAGE_BOIL: $rendered_time = ($h["time"] == 0) ? " Kochende" : (number_format($h["time"], 0, ",", ".") . " Minuten"); break;
-                case USAGE_FLAMEOUT: $rendered_time = "Kochende"; break;
-                case USAGE_WHIRLPOOL: $rendered_time = "Whirlpool"; break;
-                default: $rendered_time = "(?)";
-                }
-                $amount = number_format($h["amount"], 0, ",", ".");
-                $tt_amount = number_format($this->gToOz($h["amount"]), 2, ",", ".") . " oz";
-                $dose = number_format($h["amount"] / $recipe["planned_batch_volume"], 1, ",", ".") . " g/l";
-                $tt_dose = number_format($this->gToOz($h["amount"]) / $this->lToGal($recipe["planned_batch_volume"]), 2, ",", ".") . " oz/gal";
-    			$line = $this->formatString(
+                $content .= $this->formatString(
                     '<tr>
-                       <td>{rendered_name}{rendered_type}{rendered_alpha}, <span data-cmtooltip="{tt_dose}">{dose}</span></td>
-                       <td><span data-cmtooltip="{tt_amount}">{amount} g</span></td>
-                       <td>{rendered_time}</td>
+                       <th>Schüttung / Maischen</th>
+                       <th colspan="2"><span data-cmtooltip="{tt}">{grainsum} kg</span></th>
                      </tr>',
                     [
-                        'rendered_name' => $rendered_name,
-                        'rendered_type' => $rendered_type,
-                        'rendered_alpha' => $rendered_alpha,
-                        'amount' => $amount,
-                        'tt_amount' => $tt_amount,
-                        'rendered_time' => $rendered_time,
-                        'dose' => $dose,
-                        'tt_dose' => $tt_dose
+                        'grainsum' => number_format($grainsum, 3, ",", "."),
+                        'tt' => number_format($this->kgToLb($grainsum), 3, ".", ",") . " lb"
                     ]);
-                array_push($rows, ["line" => $line, "usage" => $h["usage"], "time" => $h["time"]]);
-    		}
-            foreach ($recipe["adjuncts"] as $a) {
-                if (($a["usage"] < USAGE_FIRSTWORT) || ($a["usage"] > USAGE_WHIRLPOOL)) continue;
-                $rendered_name = $a["name"];
-                if (strlen($a["url"]) >= 1) {
-                    $rendered_name = '<a href="' . $a["url"] . '">' . $rendered_name . '</a>';
-                }
-                $rendered_time = "";
-                switch ($a["usage"]) {
-                case USAGE_MASH: $rendered_time = "Maische"; break;
-                case USAGE_FIRSTWORT: $rendered_time = "Vorderwürze"; break;
-                case USAGE_BOIL: $rendered_time = (($a["time"] == 0) ? "Kochende" : (number_format($a["time"], 0, ",", ".") . " Minuten")); break;
-                case USAGE_FLAMEOUT: $rendered_time = "Kochende"; break;
-                case USAGE_WHIRLPOOL: $rendered_time = "Whirlpool"; break;
-                default: $rendered_time = "(?)";
-                }
-                $unit = $a["unit"];
-                $amount = number_format($a["amount"], 0, ",", ".");
-                $dose = number_format($a["amount"] / $recipe["planned_batch_volume"], 1, ",", ".") . " " . $unit . "/l";
-    			$line = $this->formatString(
-                    '<tr>
-                       <td>{rendered_name}, {dose}</td>
-                       <td>{amount} {unit}</td>
-                       <td>{rendered_time}</td>
-                     </tr>',
-                    [
-                        'rendered_name' => $rendered_name,
-                        'dose' => $dose,
-                        'amount' => number_format($a["amount"], ($unit == "g" ? 0 : 3), ",", "."),
-                        'unit' => $unit,
-                        'rendered_time' => $rendered_time
-                    ]);
-                array_push($rows, ["line" => $line, "usage" => $a["usage"], "time" => $a["time"]]);
-            }
-            foreach ($recipe["fermentables"] as $f) {
-                if (($f["usage"] < USAGE_FIRSTWORT) || ($f["usage"] > USAGE_WHIRLPOOL)) continue;
-                $rendered_name = $f["name"];
-                if (strlen($f["url"]) >= 1) {
-                    $rendered_name = '<a href="' . $f["url"] . '">' . $rendered_name . '</a>';
-                }
-                $rendered_time = "";
-                switch ($f["usage"]) {
-                case USAGE_MASH: $rendered_time = "Maische"; break;
-                case USAGE_FIRSTWORT: $rendered_time = "Vorderwürze"; break;
-                case USAGE_BOIL: $rendered_time = (($f["time"] == 0) ? "Kochende" : (number_format($f["time"], 0, ",", ".") . " Minuten")); break;
-                case USAGE_FLAMEOUT: $rendered_time = "Kochende"; break;
-                case USAGE_WHIRLPOOL: $rendered_time = "Whirlpool"; break;
-                default: $rendered_time = "(?)";
-                }
-                $unit = "g";
-                $amount = $f["amount"] * 1000;
-                $dose = number_format($amount / $recipe["planned_batch_volume"], 1, ",", ".") . " " . $unit . "/l";
-    			$line = $this->formatString(
-                    '<tr>
-                       <td>{rendered_name}, {dose}</td>
-                       <td>{amount} {unit}</td>
-                       <td>{rendered_time}</td>
-                     </tr>',
-                    [
-                        'rendered_name' => $rendered_name,
-                        'dose' => $dose,
-                        'amount' => number_format($amount, ($unit == "g" ? 0 : 3), ",", "."),
-                        'unit' => $unit,
-                        'rendered_time' => $rendered_time
-                    ]);
-                array_push($rows, ["line" => $line, "usage" => $f["usage"], "time" => $f["time"]]);
-            }
-            usort($rows, 'adjuncts_cmp');
-            foreach ($rows as $row) {
-                $content .= $row["line"];
-            }
-        }
-        
-        if ($recipe["sudhausausbeute"] or $recipe["estimated_sudhausausbeute"]) {
-            $tt = null;
-            if ($recipe["estimated_sudhausausbeute"]) {
-                $value = number_format($recipe["estimated_sudhausausbeute"], 0, ",", ".");
-                $label = "Von Brausoftware erwartete Sudhausausbeute";
-                $tt = $label . ": " . $value . " %" . ($tt ? (",<br/>" . $tt) : "");
-            }
-            if ($recipe["sudhausausbeute"]) {
-                $value = number_format($recipe["sudhausausbeute"], 0, ",", ".");
-                $label = "Von Brausoftware berechnete Sudhausausbeute";
-                $tt = $label . ": " . $value . " %" . ($tt ? (",<br/>" . $tt) : "");
-            }
-            if ($recipe["og"] and $recipe["post_boil_hot_volume"]) {
-                $value = number_format($this->calcSudhausausbeuteTraditional($grainsum, $recipe["batch_volume"], $this->sgToPlato($recipe["og"])), 0, ",", ".");
-                $label = "Berechnete traditionelle Sudhausausbeute";
-                $tt = $label . ": " . $value . " %" . ($tt ? (",<br/>" . $tt) : "");
-            } elseif ($recipe["og"] and $recipe["post_boil_roomtemp_volume"] > 0) {
-                $value = number_format($this->calcSudhausausbeuteTraditional($grainsum, $this->calcVolAtTemp($recipe["post_boil_roomtemp_volume"], 20, 99), $this->sgToPlato($recipe["og"])), 0, ",", ".");
-                $label = "Berechnete traditionelle Sudhausausbeute";
-                $tt = $label . ": " . $value . " %" . ($tt ? (",<br/>" . $tt) : "");
-            }
-            if ($recipe["og"] && $recipe["batch_volume"]) {
-                $value = number_format($this->calcKaltwuerzeausbeute($grainsum, $recipe["batch_volume"], $this->sgToPlato($recipe["og"])), 0, ",", ".");
-                $label = "Berechnete Gesamtausbeute";
-                $tt = $label . ": " . $value . " %" . ($tt ? (",<br/>" . $tt) : "");
-            }
-            $content .= $this->formatString(
-                '<tr>
-                   <td>{label}</td>
-                   <td colspan="2"><span data-cmtooltip="{tt}">{value} %</span></td>
-                 </tr>',
-                [
-                    'label' => $label,
-                    'value' => $value,
-                    'tt' => $tt
-                ]);
-        }
-
-        if ($recipe["post_boil_hot_time"] > 0) {
-    			$content .= $this->formatString(
-                    '<tr>
-                       <td>Nachisomerisierung</td>
-                       <td></td>
-                       <td>{value} Minuten</td>
-                     </tr>',
-                    [
-                        'value' => $recipe["post_boil_hot_time"]
-                    ]);
-        }
-
-        if (($recipe["post_boil_hot_volume"] > 0) || ($recipe["post_boil_roomtemp_volume"] > 0)) {
-            $tt = null;
-            if ($recipe["post_boil_hot_volume"]) {
-                $value = number_format($recipe["post_boil_hot_volume"], 1, ",", ".");
-                $label = "Würzemenge nach dem Kochen bei 99 °C";
-                $tt = $label . ": " . $value . " Liter (" . number_format($this->lToGal($recipe["post_boil_hot_volume"]), 2, ",", ".") . " gal)" . ($tt ? (",<br/>" . $tt) : "");
-            }
-            if ($recipe["post_boil_roomtemp_volume"]) {
-                $value = number_format($recipe["post_boil_roomtemp_volume"], 1, ",", ".");
-                $label = "Würzemenge nach dem Kochen bei 20 °C";
-                $tt = $label . ": " . $value . " Liter (" . number_format($this->lToGal($recipe["post_boil_roomtemp_volume"]), 2, ",", ".") . " gal)" . ($tt ? (",<br/>" . $tt) : "");
-            }
-            $content .= $this->formatString(
-                '<tr>
-                   <td>{label}</td>
-                   <td colspan="2"><span data-cmtooltip="{tt}">{value} Liter</span></td>
-                 </tr>',
-                [
-                    'label' => $label,
-                    'value' => $value,
-                    'tt' => $tt
-                ]);
-        }
-
-        if ((count($recipe["yeasts"]) >= 1) || (count($recipe["fermentation_steps"]) >= 1)) {
-            if ($recipe["fermentation_steps"][0]["days"]) {
-                $state = $recipe["fermentation_steps"][0]["days"] . " Tage";
-            }
-            if ((!$days) && ($recipe["fermentation_steps"][0]["planned_days"])) {
-                $state = $recipe["fermentation_steps"][0]["planned_days"] . " Tage";
-            }
-            if (($recipe["status"] >= STATUS_FERMENTATION) && ($recipe["status"] < STATUS_FERMENTATION_SECONDARY)) {
-                $d = date_diff(date_create($Sud["Anstelldatum"]), date_create());
-                $days = $d->format("%a");
-                $state = "bisher " . $days . " Tage";
-            }
-            $content .= $this->formatString(
-                '<tr>
-                   <th>Gärung</th>
-                   <th colspan="2">{state}</th>
-                 </tr>',
-                [
-                    'state' => $state
-                ]);
-        }
-
-        if ($recipe["batch_volume"] > 0) {
-            $tt = null;
-            if ($recipe["planned_batch_volume"] > 0) {
-                $value = number_format($recipe["planned_batch_volume"], 1, ",", ".");
-                $label = "Geplante Ausschlagmenge";
-                $tt = $label . ": " . $value . " Liter (" . number_format($this->lToGal($recipe["planned_batch_volume"]), 2, ",", ".") . " gal)" . ($tt ? (",<br/>" . $tt) : "");
-            }
-            if ($recipe["batch_volume"] > 0) {
-                $value = number_format($recipe["batch_volume"], 1, ",", ".");
-                $label = "Ausschlag- und Anstellmenge";
-                $tt = $label . ": " . $value . " Liter (" . number_format($this->lToGal($recipe["batch_volume"]), 2, ",", ".") . " gal)" . ($tt ? (",<br/>" . $tt) : "");
-            }
-            $content .= $this->formatString(
-                '<tr>
-                   <td>{label}</td>
-                   <td colspan="2"><span data-cmtooltip="{tt}">{value} Liter</span></td>
-                 </tr>',
-                [
-                    'label' => $label,
-                    'value' => $value,
-                    'tt' => $tt
-                ]);
-        }
-        
-        if (count($recipe["yeasts"]) >= 1) {
-            foreach ($recipe["yeasts"] as $y) {
-                $rendered_name = $y["name"];
-                if (strlen($y["url"]) >= 1) {
-                    $rendered_name = '<a href="' . $y["url"] . '">' . $rendered_name . '</a>';
-                }
-                if ($y["type"] == YEAST_ALE) {
-                    $type = "obergärig";
-                } elseif ($y["type"] == YEAST_LAGER) {
-                    $type = "untergärig";
-                } else {
-                    $type = "?";
-                }
-                if ($y["form"] == YEAST_FORM_DRY) {
-                    $form = "trocken";
-                } elseif ($y["form"] == YEAST_FORM_LIQUID) {
-                    $form = "flüssig";
-                } else {
-                    $form = "?". $y["type"];
-                }
-                if ($y["flocculation"] == FLOC_LOW) {
-                    $floc = "niedig";
-                } elseif ($y["flocculation"] == FLOC_MEDIUM) {
-                    $floc = "mittel";
-                } elseif ($y["flocculation"] == FLOC_HIGH) {
-                    $floc = "hoch";
-                } else {
-                    $floc = $y["flocculation"];
-                }
-                if ($y["temp_max"]) {
-                    $temp_range = number_format($y["temp_max"], 0, ",", ".");
-                    if ($y["temp_min"]) {
-                        $temp_range = number_format($y["temp_min"], 0, ",", ".") . " - " . $temp_range;
+                foreach ($recipe["fermentables"] as $f) {
+                    if ($f["usage"] != USAGE_MASH) continue;
+                    $rendered_name = $f["name"];
+                    if (strlen($f["url"]) >= 1) {
+                        $rendered_name = '<a href="' . $f["url"] . '">' . $rendered_name . '</a>';
                     }
-                    $temp_range = ", " . $temp_range . " °C";
+                    $percent = ($f["amount"] / $grainsum) * 100;
+        			$content .= $this->formatString(
+                        '<tr>
+                           <td>{rendered_name}</td>
+                           <td>{percent} %</td>
+                           <td style="text-align:right"><span data-cmtooltip="{tt_amount}">{amount} kg</span></td>
+                         </tr>',
+                        [
+                            'rendered_name' => $rendered_name,
+                            'percent' => $percent == 100 ? "100" : number_format($percent, 1, ",", "."),
+                            'amount' => number_format($f["amount"], 3, ",", "."),
+                            'tt_amount' => number_format($this->kgToLb($f["amount"]), 3, ",", ".") . " lb"
+                        ]);
+                }
+                foreach ($recipe["adjuncts"] as $a) {
+                    if ($a["usage"] != USAGE_MASH) continue;
+                    $rendered_name = $a["name"];
+                    if (strlen($a["url"]) >= 1) {
+                        $rendered_name = '<a href="' . $a["url"] . '">' . $rendered_name . '</a>';
+                    }
+                    $unit = $a["unit"];
+                    if ($unit == "kg") {
+                        $dose = number_format($a["amount"] / $recipe["planned_batch_volume"] * 1000, 0, ",", ".") . " " . "g" . "/l";
+                    } else {
+                        $dose = number_format($a["amount"] / $recipe["planned_batch_volume"], 3, ",", ".") . " " . $unit . "/l";
+                    }
+        			$content .= $this->formatString(
+                        '<tr>
+                           <td>{rendered_name}</td>
+                           <td>{dose}</td>
+                           <td style="text-align:right"><span data-cmtooltip="{tt_amount}">{amount} {unit}</span></td>
+                         </tr>',
+                        [
+                            'rendered_name' => $rendered_name,
+                            'dose' => $dose,
+                            'amount' => number_format($a["amount"], ($unit == "g" ? 0 : 3), ",", "."),
+                            'unit' => $unit,
+                            'tt_amount' => ($unit == "g") ? number_format($this->gToOz($a["amount"]), 2, ",", ".") . " oz" : ""
+                        ]);
+                }
+                // TBD: hops during mash? not really required. :-)
+            }
+
+            if ($recipe["planned_residual_alkalinity"]) {
+                $content .= $this->formatString(
+                    '<tr>
+                       <td>geplante Brauwasser-Restalkalität</td>
+                       <td colspan="2"><span data-cmtooltip="{tt}">{value} °dH</span></td>
+                     </tr>',
+                    [
+                        'value' => number_format($this->ppmToDh($recipe["planned_residual_alkalinity"]), 1, ",", "."),
+                        'tt' => number_format($recipe["planned_residual_alkalinity"], 1, ",", ".") . " ppm"
+                    ]);
+            }
+
+            if ($recipe["mash_ph"]) {
+                $content .= $this->formatString(
+                    '<tr>
+                       <td>Maische pH-Wert</td>
+                       <td colspan="2">{ph}</td>
+                     </tr>',
+                    [
+                        'ph' => number_format($recipe["mash_ph"], 1, ",", ".")
+                    ]);
+            }
+            
+            if ($recipe["mash_water_volume"]) {
+                $content .= $this->formatString(
+                    '<tr>
+                       <td>Hauptguss &amp; Einmaischen</td>
+                       <td><span data-cmtooltip="{tt_temp}">{temp} °C</span></td>
+                       <td><span data-cmtooltip="{tt_vol}">{vol} Liter</span></td>
+                     </tr>',
+                    [
+                        'temp' => number_format($recipe["mash_in_temp"], 0, ",", "."),
+                        'tt_temp' => number_format($this->cToF($recipe["mash_in_temp"]), 0, ",", ".") . " °F",
+                        'vol' => number_format($recipe["mash_water_volume"], 1, ",", "."),
+                        'tt_vol' => number_format($this->lToGal($recipe["mash_water_volume"]), 2, ",", ".") . " gal"
+                    ]);
+            }
+
+            $sparge_water_temp = 78; // default
+            if ($recipe["mash_steps"]) {
+                foreach ($recipe["mash_steps"] as $m) {
+        			$content .= $this->formatString(
+                        '<tr>
+                           <td>{name}</td>
+                           <td><span data-cmtooltip="{tt}">{temp} °C</span></td>
+                           <td>{time} Minuten</td>
+                         </tr>',
+                        [
+                            'name' => $m["name"],
+                            'temp' => number_format($m["temp"], 0, ",", "."),
+                            'time' => number_format($m["time"], 0, ",", "."),
+                            'tt' => number_format($this->cToF($m["temp"]), 0, ",", ".") . " °F"
+                        ]);
+                    $sparge_water_temp = $m["temp"];
+                }
+            }
+
+            if ($recipe["sparge_water_volume"]) {
+                $content .= $this->formatString(
+                    '<tr>
+                       <td>Nachguss</td>
+                       <td><span data-cmtooltip="{tt_temp}">{temp} °C</span></td>
+                       <td><span data-cmtooltip="{tt_vol}">{vol} Liter</span></td>
+                     </tr>',
+                    [
+                        'temp' => number_format($sparge_water_temp, 0, ",", "."),
+                        'tt_temp' => number_format($this->cToF($sparge_water_temp), 0, ",", ".") . " °F",
+                        'vol' => number_format($recipe["sparge_water_volume"], 1, ",", "."),
+                        'tt_vol' => number_format($this->lToGal($recipe["sparge_water_volume"]), 2, ",", ".") . " gal"
+                    ]);
+            }
+
+            if ($recipe["boil_time"] > 0) {
+        		$content .= $this->formatString(
+                    '<tr>
+                       <th>Würzekochen</th>
+                       <th colspan="2">{time} Minuten</th>
+                     </tr>',
+                    [
+                        'time' => number_format($recipe["boil_time"], 0, ",", ".")
+                    ]);
+                $rows = [];
+                foreach ($recipe["hops"] as $h) {
+                    if (($h["usage"] < USAGE_FIRSTWORT) || ($h["usage"] > USAGE_WHIRLPOOL)) continue;
+                    $rendered_name = $h["name"];
+                    if (strlen($h["url"]) >= 1) {
+                        $rendered_name = '<a href="' . $h["url"] . '">' . $rendered_name . '</a>';
+                    }
+                    $rendered_type = "";
+                    switch ($h["type"]) {
+                    case HOP_LEAF: $rendered_type = ", Dolden"; break;
+                    case HOP_PLUG: $rendered_type = ", Plugs"; break;
+                    case HOP_PELLET: $rendered_type = ", Pellets"; break;
+                    case HOP_EXTRACT: $rendered_type = ", Extrakt"; break;
+                    default: $rendered_type = ", (?)";
+                    }
+                    $rendered_alpha = "";
+                    if ($h["alpha"] > 0) {
+                        $rendered_alpha = ", " . number_format($h["alpha"], 1, ",", ".") . " %α";
+                    }
+                    $rendered_time = "";
+                    switch ($h["usage"]) {
+                    case USAGE_MASH: $rendered_time = "Maische"; break;
+                    case USAGE_FIRSTWORT: $rendered_time = "Vorderwürze"; break;
+                    case USAGE_BOIL: $rendered_time = ($h["time"] == 0) ? " Kochende" : (number_format($h["time"], 0, ",", ".") . " Minuten"); break;
+                    case USAGE_FLAMEOUT: $rendered_time = "Kochende"; break;
+                    case USAGE_WHIRLPOOL: $rendered_time = "Whirlpool"; break;
+                    default: $rendered_time = "(?)";
+                    }
+                    $amount = number_format($h["amount"], 0, ",", ".");
+                    $tt_amount = number_format($this->gToOz($h["amount"]), 2, ",", ".") . " oz";
+                    $dose = number_format($h["amount"] / $recipe["planned_batch_volume"], 1, ",", ".") . " g/l";
+                    $tt_dose = number_format($this->gToOz($h["amount"]) / $this->lToGal($recipe["planned_batch_volume"]), 2, ",", ".") . " oz/gal";
+        			$line = $this->formatString(
+                        '<tr>
+                           <td>{rendered_name}{rendered_type}{rendered_alpha}, <span data-cmtooltip="{tt_dose}">{dose}</span></td>
+                           <td><span data-cmtooltip="{tt_amount}">{amount} g</span></td>
+                           <td>{rendered_time}</td>
+                         </tr>',
+                        [
+                            'rendered_name' => $rendered_name,
+                            'rendered_type' => $rendered_type,
+                            'rendered_alpha' => $rendered_alpha,
+                            'amount' => $amount,
+                            'tt_amount' => $tt_amount,
+                            'rendered_time' => $rendered_time,
+                            'dose' => $dose,
+                            'tt_dose' => $tt_dose
+                        ]);
+                    array_push($rows, ["line" => $line, "usage" => $h["usage"], "time" => $h["time"]]);
+        		}
+                foreach ($recipe["adjuncts"] as $a) {
+                    if (($a["usage"] < USAGE_FIRSTWORT) || ($a["usage"] > USAGE_WHIRLPOOL)) continue;
+                    $rendered_name = $a["name"];
+                    if (strlen($a["url"]) >= 1) {
+                        $rendered_name = '<a href="' . $a["url"] . '">' . $rendered_name . '</a>';
+                    }
+                    $rendered_time = "";
+                    switch ($a["usage"]) {
+                    case USAGE_MASH: $rendered_time = "Maische"; break;
+                    case USAGE_FIRSTWORT: $rendered_time = "Vorderwürze"; break;
+                    case USAGE_BOIL: $rendered_time = (($a["time"] == 0) ? "Kochende" : (number_format($a["time"], 0, ",", ".") . " Minuten")); break;
+                    case USAGE_FLAMEOUT: $rendered_time = "Kochende"; break;
+                    case USAGE_WHIRLPOOL: $rendered_time = "Whirlpool"; break;
+                    default: $rendered_time = "(?)";
+                    }
+                    $unit = $a["unit"];
+                    $amount = number_format($a["amount"], 0, ",", ".");
+                    $dose = number_format($a["amount"] / $recipe["planned_batch_volume"], 1, ",", ".") . " " . $unit . "/l";
+        			$line = $this->formatString(
+                        '<tr>
+                           <td>{rendered_name}, {dose}</td>
+                           <td>{amount} {unit}</td>
+                           <td>{rendered_time}</td>
+                         </tr>',
+                        [
+                            'rendered_name' => $rendered_name,
+                            'dose' => $dose,
+                            'amount' => number_format($a["amount"], ($unit == "g" ? 0 : 3), ",", "."),
+                            'unit' => $unit,
+                            'rendered_time' => $rendered_time
+                        ]);
+                    array_push($rows, ["line" => $line, "usage" => $a["usage"], "time" => $a["time"]]);
+                }
+                foreach ($recipe["fermentables"] as $f) {
+                    if (($f["usage"] < USAGE_FIRSTWORT) || ($f["usage"] > USAGE_WHIRLPOOL)) continue;
+                    $rendered_name = $f["name"];
+                    if (strlen($f["url"]) >= 1) {
+                        $rendered_name = '<a href="' . $f["url"] . '">' . $rendered_name . '</a>';
+                    }
+                    $rendered_time = "";
+                    switch ($f["usage"]) {
+                    case USAGE_MASH: $rendered_time = "Maische"; break;
+                    case USAGE_FIRSTWORT: $rendered_time = "Vorderwürze"; break;
+                    case USAGE_BOIL: $rendered_time = (($f["time"] == 0) ? "Kochende" : (number_format($f["time"], 0, ",", ".") . " Minuten")); break;
+                    case USAGE_FLAMEOUT: $rendered_time = "Kochende"; break;
+                    case USAGE_WHIRLPOOL: $rendered_time = "Whirlpool"; break;
+                    default: $rendered_time = "(?)";
+                    }
+                    $unit = "g";
+                    $amount = $f["amount"] * 1000;
+                    $dose = number_format($amount / $recipe["planned_batch_volume"], 1, ",", ".") . " " . $unit . "/l";
+        			$line = $this->formatString(
+                        '<tr>
+                           <td>{rendered_name}, {dose}</td>
+                           <td>{amount} {unit}</td>
+                           <td>{rendered_time}</td>
+                         </tr>',
+                        [
+                            'rendered_name' => $rendered_name,
+                            'dose' => $dose,
+                            'amount' => number_format($amount, ($unit == "g" ? 0 : 3), ",", "."),
+                            'unit' => $unit,
+                            'rendered_time' => $rendered_time
+                        ]);
+                    array_push($rows, ["line" => $line, "usage" => $f["usage"], "time" => $f["time"]]);
+                }
+                usort($rows, 'adjuncts_cmp');
+                foreach ($rows as $row) {
+                    $content .= $row["line"];
+                }
+            }
+            
+            if ($recipe["sudhausausbeute"] or $recipe["estimated_sudhausausbeute"]) {
+                $tt = null;
+                if ($recipe["estimated_sudhausausbeute"]) {
+                    $value = number_format($recipe["estimated_sudhausausbeute"], 0, ",", ".");
+                    $label = "Von Brausoftware erwartete Sudhausausbeute";
+                    $tt = $label . ": " . $value . " %" . ($tt ? (",<br/>" . $tt) : "");
+                }
+                if ($recipe["sudhausausbeute"]) {
+                    $value = number_format($recipe["sudhausausbeute"], 0, ",", ".");
+                    $label = "Von Brausoftware berechnete Sudhausausbeute";
+                    $tt = $label . ": " . $value . " %" . ($tt ? (",<br/>" . $tt) : "");
+                }
+                if ($recipe["og"] and $recipe["post_boil_hot_volume"]) {
+                    $value = number_format($this->calcSudhausausbeuteTraditional($grainsum, $recipe["batch_volume"], $this->sgToPlato($recipe["og"])), 0, ",", ".");
+                    $label = "Berechnete traditionelle Sudhausausbeute";
+                    $tt = $label . ": " . $value . " %" . ($tt ? (",<br/>" . $tt) : "");
+                } elseif ($recipe["og"] and $recipe["post_boil_roomtemp_volume"] > 0) {
+                    $value = number_format($this->calcSudhausausbeuteTraditional($grainsum, $this->calcVolAtTemp($recipe["post_boil_roomtemp_volume"], 20, 99), $this->sgToPlato($recipe["og"])), 0, ",", ".");
+                    $label = "Berechnete traditionelle Sudhausausbeute";
+                    $tt = $label . ": " . $value . " %" . ($tt ? (",<br/>" . $tt) : "");
+                }
+                if ($recipe["og"] && $recipe["batch_volume"]) {
+                    $value = number_format($this->calcKaltwuerzeausbeute($grainsum, $recipe["batch_volume"], $this->sgToPlato($recipe["og"])), 0, ",", ".");
+                    $label = "Berechnete Gesamtausbeute";
+                    $tt = $label . ": " . $value . " %" . ($tt ? (",<br/>" . $tt) : "");
+                }
+                $content .= $this->formatString(
+                    '<tr>
+                       <td>{label}</td>
+                       <td colspan="2"><span data-cmtooltip="{tt}">{value} %</span></td>
+                     </tr>',
+                    [
+                        'label' => $label,
+                        'value' => $value,
+                        'tt' => $tt
+                    ]);
+            }
+
+            if ($recipe["post_boil_hot_time"] > 0) {
+        			$content .= $this->formatString(
+                        '<tr>
+                           <td>Nachisomerisierung</td>
+                           <td></td>
+                           <td>{value} Minuten</td>
+                         </tr>',
+                        [
+                            'value' => $recipe["post_boil_hot_time"]
+                        ]);
+            }
+
+            if (($recipe["post_boil_hot_volume"] > 0) || ($recipe["post_boil_roomtemp_volume"] > 0)) {
+                $tt = null;
+                if ($recipe["post_boil_hot_volume"]) {
+                    $value = number_format($recipe["post_boil_hot_volume"], 1, ",", ".");
+                    $label = "Würzemenge nach dem Kochen bei 99 °C";
+                    $tt = $label . ": " . $value . " Liter (" . number_format($this->lToGal($recipe["post_boil_hot_volume"]), 2, ",", ".") . " gal)" . ($tt ? (",<br/>" . $tt) : "");
+                }
+                if ($recipe["post_boil_roomtemp_volume"]) {
+                    $value = number_format($recipe["post_boil_roomtemp_volume"], 1, ",", ".");
+                    $label = "Würzemenge nach dem Kochen bei 20 °C";
+                    $tt = $label . ": " . $value . " Liter (" . number_format($this->lToGal($recipe["post_boil_roomtemp_volume"]), 2, ",", ".") . " gal)" . ($tt ? (",<br/>" . $tt) : "");
+                }
+                $content .= $this->formatString(
+                    '<tr>
+                       <td>{label}</td>
+                       <td colspan="2"><span data-cmtooltip="{tt}">{value} Liter</span></td>
+                     </tr>',
+                    [
+                        'label' => $label,
+                        'value' => $value,
+                        'tt' => $tt
+                    ]);
+            }
+
+            if ((count($recipe["yeasts"]) >= 1) || (count($recipe["fermentation_steps"]) >= 1)) {
+                if ($recipe["fermentation_steps"][0]["days"]) {
+                    $state = $recipe["fermentation_steps"][0]["days"] . " Tage";
+                }
+                if ((!$days) && ($recipe["fermentation_steps"][0]["planned_days"])) {
+                    $state = $recipe["fermentation_steps"][0]["planned_days"] . " Tage";
+                }
+                if (($recipe["status"] >= STATUS_FERMENTATION) && ($recipe["status"] < STATUS_FERMENTATION_SECONDARY)) {
+                    $d = date_diff(date_create($Sud["Anstelldatum"]), date_create());
+                    $days = $d->format("%a");
+                    $state = "bisher " . $days . " Tage";
+                }
+                $content .= $this->formatString(
+                    '<tr>
+                       <th>Gärung</th>
+                       <th colspan="2">{state}</th>
+                     </tr>',
+                    [
+                        'state' => $state
+                    ]);
+            }
+
+            if ($recipe["batch_volume"] > 0) {
+                $tt = null;
+                if ($recipe["planned_batch_volume"] > 0) {
+                    $value = number_format($recipe["planned_batch_volume"], 1, ",", ".");
+                    $label = "Geplante Ausschlagmenge";
+                    $tt = $label . ": " . $value . " Liter (" . number_format($this->lToGal($recipe["planned_batch_volume"]), 2, ",", ".") . " gal)" . ($tt ? (",<br/>" . $tt) : "");
+                }
+                if ($recipe["batch_volume"] > 0) {
+                    $value = number_format($recipe["batch_volume"], 1, ",", ".");
+                    $label = "Ausschlag- und Anstellmenge";
+                    $tt = $label . ": " . $value . " Liter (" . number_format($this->lToGal($recipe["batch_volume"]), 2, ",", ".") . " gal)" . ($tt ? (",<br/>" . $tt) : "");
+                }
+                $content .= $this->formatString(
+                    '<tr>
+                       <td>{label}</td>
+                       <td colspan="2"><span data-cmtooltip="{tt}">{value} Liter</span></td>
+                     </tr>',
+                    [
+                        'label' => $label,
+                        'value' => $value,
+                        'tt' => $tt
+                    ]);
+            }
+            
+            if (count($recipe["yeasts"]) >= 1) {
+                foreach ($recipe["yeasts"] as $y) {
+                    $rendered_name = $y["name"];
+                    if (strlen($y["url"]) >= 1) {
+                        $rendered_name = '<a href="' . $y["url"] . '">' . $rendered_name . '</a>';
+                    }
+                    if ($y["type"] == YEAST_ALE) {
+                        $type = "obergärig";
+                    } elseif ($y["type"] == YEAST_LAGER) {
+                        $type = "untergärig";
+                    } else {
+                        $type = "?";
+                    }
+                    if ($y["form"] == YEAST_FORM_DRY) {
+                        $form = "trocken";
+                    } elseif ($y["form"] == YEAST_FORM_LIQUID) {
+                        $form = "flüssig";
+                    } else {
+                        $form = "?". $y["type"];
+                    }
+                    if ($y["flocculation"] == FLOC_LOW) {
+                        $floc = "niedig";
+                    } elseif ($y["flocculation"] == FLOC_MEDIUM) {
+                        $floc = "mittel";
+                    } elseif ($y["flocculation"] == FLOC_HIGH) {
+                        $floc = "hoch";
+                    } else {
+                        $floc = $y["flocculation"];
+                    }
+                    if ($y["temp_max"]) {
+                        $temp_range = number_format($y["temp_max"], 0, ",", ".");
+                        if ($y["temp_min"]) {
+                            $temp_range = number_format($y["temp_min"], 0, ",", ".") . " - " . $temp_range;
+                        }
+                        $temp_range = ", " . $temp_range . " °C";
+                    } else {
+                        $temp_range = "";
+                    }
+                    $content .= $this->formatString(
+                        '<tr>
+
+                           <td><span data-cmtooltip="{name}, {type}, {form}, Sedimentierung {floc}, max. Endvergärungsgrad {attenuation} %{temp_range}">{rendered_name}</span></td>
+                           <td colspan="2">{amount} {unit}</td>
+                         </tr>',
+                        [
+                            'rendered_name' => $rendered_name,
+                            'name' => $y["name"],
+                            'type' => $type,
+                            'form' => $form,
+                            'floc' => $floc,
+                            'temp_range' => $temp_range,
+                            'attenuation' => number_format($y["attenuation"], 0, ",", "."),
+                            'amount' => $y["amount"],
+                            //'unit' => ($y["unit"] == "packets") && ($y["amount"] == 1) ? "packet" : $y["unit"]
+                            'unit' => ($y["unit"] == "packets") ? "Päckchen" : $y["unit"]
+                        ]);
+                }
+            }
+            
+            $ferm_days = 0;
+            $excludePhases = array();
+            if (count($recipe["fermentation_steps"]) >= 1) {
+                foreach ($recipe["fermentation_steps"] as $f) {
+                    $tt_days = null; $tt_temp = null; $days = null; $temp = null;
+                    if ($f["planned_days"]) {
+                        $days = number_format($f["planned_days"], 0, ",", ".");
+                        $tt_days = "Geplante Tage: " . $days . ($tt_days ? (",<br/>" . $tt_days) : "");
+                        $days = $days . " Tage";
+                        $ferm_days += $days;
+                    }
+                    if ($f["days"]) {
+                        $days = number_format($f["days"], 0, ",", ".");
+                        $tt_days = "Tatsächliche Tage: " . $days . ($tt_days ? (",<br/>" . $tt_days) : "");
+                        $days = $days . " Tage";
+                        $ferm_days += $days;
+                    }
+                    if ($f["planned_temp"]) {
+                        $temp = number_format($f["planned_temp"], 0, ",", ".");
+                        $tt_temp = "Geplante Temperatur: " . $temp . " °C (" . number_format($this->cToF($f["planned_temp"]), 0, ",", ".") . " °F)" . ($tt_temp ? (",<br/>" . $tt_temp) : "");
+                        $temp = $temp . " °C";
+                    }
+                    if ($f["temp"]) {
+                        $temp = number_format($f["temp"], 0, ",", ".");
+                        $tt_temp = "Tatsächliche durchschnittliche Temperatur: " . $temp . " °C (" . number_format($this->cToF($f["temp"]), 0, ",", ".") . " °F)" . ($tt_temp ? (",<br/>" . $tt_temp) : "");
+                        $temp = $temp . " °C";
+                    }
+                    $content .= $this->formatString(
+                        '<tr>
+                           <td>{name}</t>
+                           <td><span data-cmtooltip="{tt_temp}">{temp}</span></t>
+                           <td><span data-cmtooltip="{tt_days}">{days}</span></t>
+                         </tr>',
+                        [
+                            'name' => $f["name"],
+                            'days' => $days,
+                            'temp' => $temp,
+                            'tt_days' => $tt_days,
+                            'tt_temp' => $tt_temp
+                        ]);
+
+                    $content .= $this->renderHopsAndAdjuncts($recipe, $f["name"], array());
+                    array_push($excludePhases, $f["name"]);
+                }
+            }
+
+            $content .= $this->renderHopsAndAdjuncts($recipe, null, $excludePhases);
+            
+            if ($recipe["fg"] || $recipe["current_g"]) {
+                $tt = null;
+                if ($recipe["og"] && $recipe["current_g"]) {
+                    $attenuation = ($this->sgToPlato($recipe["og"]) - $this->sgToPlato($recipe["current_g"])) * 100 / $this->sgToPlato($recipe["og"]);
+                    $value = number_format($attenuation, 0, ",", ".");
+                    $label = "Bisheriger scheinbarer Vergärungsgrad";
+                }
+                if ($recipe["fg"]) {
+                    $attenuation = ($this->sgToPlato($recipe["og"]) - $this->sgToPlato($recipe["fg"])) * 100 / $this->sgToPlato($recipe["og"]);
+                    $value = number_format($attenuation, 0, ",", ".");
+                    $label = "Scheinbarer Endvergärungsgrad";
+                }
+                $content .= $this->formatString(
+                    '<tr>
+                       <td>{label}</td>
+                       <td colspan="2">{value} %</td>
+                     </tr>',
+                    [
+                        'label' => $label,
+                        'value' => $value
+                    ]);
+            }
+
+            $date = $this->renderDate($recipe["bottle_date"]);
+            $content .= $this->formatString(
+                '<tr>
+                   <th>Abfüllung</th>
+                   <th colspan="2">{date}</th>
+                 </tr>',
+                [
+                    'date' => $date
+                ]);
+            
+            if ($recipe["containers"]) {
+                $content .= $this->formatString(
+                    '<tr>
+                      <td>Gebinde</td>
+                      <td colspan="2">{containers}</td>
+                    </tr>',
+                    [
+                        'containers' => $recipe["containers"]
+                    ]);
+            }
+
+            if ($recipe["pack_color"]) {
+                $content .= $this->formatString(
+                    '<tr>
+                      <td>Kronkorkenfarbe</td>
+                      <td colspan="2">{pack_color}</td>
+                    </tr>',
+                    [
+                        'pack_color' => $recipe["pack_color"]
+                    ]);
+            }
+
+            if (($recipe["planned_co2"]) || ($recipe["co2"])) {
+                $tt = null;
+                if ($recipe["planned_co2"]) {
+                    $value = number_format($recipe["planned_co2"], 1, ",", ".");
+                    $label = "Geplante Karbonisierung";
+                    $bar4 = $this->calcBarAtC($recipe["planned_co2"], 4);
+                    $bar20 = $this->calcBarAtC($recipe["planned_co2"], 20);
+                    $psi38 = $this->calcPsiAtF($recipe["planned_co2"], 38);
+                    $psi68 = $this->calcPsiAtF($recipe["planned_co2"], 68);
+                    $vols = $this->co2gToVols($recipe["planned_co2"]);
+                    $tt = $label . ": " . $value . " g/l <br/> ≙ " . number_format($bar4, 1, ",", ".") . "-" . number_format($bar20, 1, ",", ".") . " bar bei 4-20 °C <br/> ≙ " . number_format($psi38, 1, ",", ".") . "-" . number_format($psi68, 1, ",", ".") . " psi bei 38-68 °F <br/> ≙ " . number_format($vols, 1, ",", ".") . " volumes" . ($tt ? (",<br/>" . $tt) : "");
+                }
+                if ($recipe["co2"]) {
+                    $value = number_format($recipe["co2"], 1, ",", ".");
+                    $label = "Gemessene Karbonisierung";
+                    $bar4 = $this->calcBarAtC($recipe["co2"], 4);
+                    $bar20 = $this->calcBarAtC($recipe["co2"], 20);
+                    $psi38 = $this->calcPsiAtF($recipe["co2"], 38);
+                    $psi68 = $this->calcPsiAtF($recipe["co2"], 68);
+                    $vols = $this->co2gToVols($recipe["co2"]);
+                    $tt = $label . ": " . $value . " g/l <br/> ≙ " . number_format($bar4, 1, ",", ".") . "-" . number_format($bar20, 1, ",", ".") . " bar bei 4-20 °C <br/> ≙ " . number_format($psi38, 1, ",", ".") . "-" . number_format($psi68, 1, ",", ".") . " psi bei 38-68 °F <br/> ≙ " . number_format($vols, 1, ",", ".") . " volumes" . ($tt ? (",<br/>" . $tt) : "");
+                }
+                $content .= $this->formatString(
+                    '<tr>
+                       <td>{label}</td>
+                       <td colspan="2"><span data-cmtooltip="{tt}">{value} g/l</span></td>
+                     </tr>',
+                    [
+                        'label' => $label,
+                        'value' => $value,
+                        'tt' => $tt
+                    ]);
+            }
+            
+            if ($recipe["age_days"]) {
+                if (($recipe["age_days"] % 7) == 0) {
+                    $age = number_format($recipe["age_days"] / 7, 0, ",", ".") . " Wochen";
                 } else {
-                    $temp_range = "";
+                    $age = number_format($recipe["age_days"], 0, ",", ".") . " Tage";
                 }
-                $content .= $this->formatString(
+                $d = null;
+                $tt = null;
+                if ($recipe["bottle_date"]) {
+                    $d = new DateTime($this->renderDate($recipe["bottle_date"]));
+                    date_add($d, new DateInterval('P' . $recipe["age_days"] . 'D'));
+                    $tt = "trinkfertig: " . $this->renderDate($d->format("Y-m-d"));
+                } elseif ($recipe["brew_date"] && ($ferm_days > 0)) {
+                    $d = new DateTime($this->renderDate($recipe["brew_date"]));
+                    date_add($d, new DateInterval('P' . $ferm_days . 'D'));
+                    date_add($d, new DateInterval('P' . $recipe["age_days"] . 'D'));
+                    $tt = "trinkfertig: " . $this->renderDate($d->format("Y-m-d"));
+                }
+        		$content .= $this->formatString(
                     '<tr>
-
-                       <td><span data-cmtooltip="{name}, {type}, {form}, Sedimentierung {floc}, max. Endvergärungsgrad {attenuation} %{temp_range}">{rendered_name}</span></td>
-                       <td colspan="2">{amount} {unit}</td>
+                       <td>geplante Reifezeit</td>
+                       <td colspan="2"><span data-cmtooltip="{tt}">{age}</span></td>
                      </tr>',
                     [
-                        'rendered_name' => $rendered_name,
-                        'name' => $y["name"],
-                        'type' => $type,
-                        'form' => $form,
-                        'floc' => $floc,
-                        'temp_range' => $temp_range,
-                        'attenuation' => number_format($y["attenuation"], 0, ",", "."),
-                        'amount' => $y["amount"],
-                        //'unit' => ($y["unit"] == "packets") && ($y["amount"] == 1) ? "packet" : $y["unit"]
-                        'unit' => ($y["unit"] == "packets") ? "Päckchen" : $y["unit"]
+                        'age' => $age,
+                        'tt' => $tt
                     ]);
             }
-        }
-        
-        $ferm_days = 0;
-        $excludePhases = array();
-        if (count($recipe["fermentation_steps"]) >= 1) {
-            foreach ($recipe["fermentation_steps"] as $f) {
-                $tt_days = null; $tt_temp = null; $days = null; $temp = null;
-                if ($f["planned_days"]) {
-                    $days = number_format($f["planned_days"], 0, ",", ".");
-                    $tt_days = "Geplante Tage: " . $days . ($tt_days ? (",<br/>" . $tt_days) : "");
-                    $days = $days . " Tage";
-                    $ferm_days += $days;
-                }
-                if ($f["days"]) {
-                    $days = number_format($f["days"], 0, ",", ".");
-                    $tt_days = "Tatsächliche Tage: " . $days . ($tt_days ? (",<br/>" . $tt_days) : "");
-                    $days = $days . " Tage";
-                    $ferm_days += $days;
-                }
-                if ($f["planned_temp"]) {
-                    $temp = number_format($f["planned_temp"], 0, ",", ".");
-                    $tt_temp = "Geplante Temperatur: " . $temp . " °C (" . number_format($this->cToF($f["planned_temp"]), 0, ",", ".") . " °F)" . ($tt_temp ? (",<br/>" . $tt_temp) : "");
-                    $temp = $temp . " °C";
-                }
-                if ($f["temp"]) {
-                    $temp = number_format($f["temp"], 0, ",", ".");
-                    $tt_temp = "Tatsächliche durchschnittliche Temperatur: " . $temp . " °C (" . number_format($this->cToF($f["temp"]), 0, ",", ".") . " °F)" . ($tt_temp ? (",<br/>" . $tt_temp) : "");
-                    $temp = $temp . " °C";
-                }
-                $content .= $this->formatString(
-                    '<tr>
-                       <td>{name}</t>
-                       <td><span data-cmtooltip="{tt_temp}">{temp}</span></t>
-                       <td><span data-cmtooltip="{tt_days}">{days}</span></t>
-                     </tr>',
-                    [
-                        'name' => $f["name"],
-                        'days' => $days,
-                        'temp' => $temp,
-                        'tt_days' => $tt_days,
-                        'tt_temp' => $tt_temp
-                    ]);
-
-                $content .= $this->renderHopsAndAdjuncts($recipe, $f["name"], array());
-                array_push($excludePhases, $f["name"]);
-            }
-        }
-
-        $content .= $this->renderHopsAndAdjuncts($recipe, null, $excludePhases);
-        
-        if ($recipe["fg"] || $recipe["current_g"]) {
-            $tt = null;
-            if ($recipe["og"] && $recipe["current_g"]) {
-                $attenuation = ($this->sgToPlato($recipe["og"]) - $this->sgToPlato($recipe["current_g"])) * 100 / $this->sgToPlato($recipe["og"]);
-                $value = number_format($attenuation, 0, ",", ".");
-                $label = "Bisheriger scheinbarer Vergärungsgrad";
-            }
-            if ($recipe["fg"]) {
-                $attenuation = ($this->sgToPlato($recipe["og"]) - $this->sgToPlato($recipe["fg"])) * 100 / $this->sgToPlato($recipe["og"]);
-                $value = number_format($attenuation, 0, ",", ".");
-                $label = "Scheinbarer Endvergärungsgrad";
-            }
+            
             $content .= $this->formatString(
-                '<tr>
-                   <td>{label}</td>
-                   <td colspan="2">{value} %</td>
-                 </tr>',
+                '<tr><th>Metadaten</th><th colspan="2"></th></tr>
+                 {tr_brewer}
+                 {tr_cobrewer}
+                 {tr_type}
+                 {tr_software}
+                 {tr_equipment}
+                 <tr><td>Letztes Update</td><td colspan="2">{updated_at}</td></tr>
+               </table',
                 [
-                    'label' => $label,
-                    'value' => $value
+                    'tr_brewer' => $recipe["brewer"] ? '<tr><td>Brauer</td><td colspan="2">' . $recipe["brewer"] . "</td></tr>" : "",
+                    'tr_cobrewer' => $recipe["assistant"] ? '<tr><td>Co-Brauer</td><td colspan="2">' . $recipe["assistant"] . "</td></tr>" : "",
+                    'tr_type' => $recipe["type"] ? '<tr><td>Brauart</td><td colspan="2">' . $this->recipeTypeWord($recipe["type"]) . "</td></tr>" : "",
+                    'tr_software' => $recipe["source"] ? '<tr><td>Software / Datenquelle</td><td colspan="2">' . $recipe["source"] . "</td></tr>" : "",
+                    'tr_equipment' => $recipe["equipment"] ? '<tr><td>Equipment</td><td colspan="2">' . $recipe["equipment"] . "</td></tr>" : "",
+                    'updated_at' => $this->renderDate($recipe["updated_at"])
                 ]);
         }
-
-        $date = $this->renderDate($recipe["bottle_date"]);
-        $content .= $this->formatString(
-            '<tr>
-               <th>Abfüllung</th>
-               <th colspan="2">{date}</th>
-             </tr>',
-            [
-                'date' => $date
-            ]);
-        
-        if ($recipe["containers"]) {
-            $content .= $this->formatString(
-                '<tr>
-                  <td>Gebinde</td>
-                  <td colspan="2">{containers}</td>
-                </tr>',
-                [
-                    'containers' => $recipe["containers"]
-                ]);
-        }
-
-        if ($recipe["pack_color"]) {
-            $content .= $this->formatString(
-                '<tr>
-                  <td>Kronkorkenfarbe</td>
-                  <td colspan="2">{pack_color}</td>
-                </tr>',
-                [
-                    'pack_color' => $recipe["pack_color"]
-                ]);
-        }
-
-        if (($recipe["planned_co2"]) || ($recipe["co2"])) {
-            $tt = null;
-            if ($recipe["planned_co2"]) {
-                $value = number_format($recipe["planned_co2"], 1, ",", ".");
-                $label = "Geplante Karbonisierung";
-                $bar4 = $this->calcBarAtC($recipe["planned_co2"], 4);
-                $bar20 = $this->calcBarAtC($recipe["planned_co2"], 20);
-                $psi38 = $this->calcPsiAtF($recipe["planned_co2"], 38);
-                $psi68 = $this->calcPsiAtF($recipe["planned_co2"], 68);
-                $vols = $this->co2gToVols($recipe["planned_co2"]);
-                $tt = $label . ": " . $value . " g/l <br/> ≙ " . number_format($bar4, 1, ",", ".") . "-" . number_format($bar20, 1, ",", ".") . " bar bei 4-20 °C <br/> ≙ " . number_format($psi38, 1, ",", ".") . "-" . number_format($psi68, 1, ",", ".") . " psi bei 38-68 °F <br/> ≙ " . number_format($vols, 1, ",", ".") . " volumes" . ($tt ? (",<br/>" . $tt) : "");
-            }
-            if ($recipe["co2"]) {
-                $value = number_format($recipe["co2"], 1, ",", ".");
-                $label = "Gemessene Karbonisierung";
-                $bar4 = $this->calcBarAtC($recipe["co2"], 4);
-                $bar20 = $this->calcBarAtC($recipe["co2"], 20);
-                $psi38 = $this->calcPsiAtF($recipe["co2"], 38);
-                $psi68 = $this->calcPsiAtF($recipe["co2"], 68);
-                $vols = $this->co2gToVols($recipe["co2"]);
-                $tt = $label . ": " . $value . " g/l <br/> ≙ " . number_format($bar4, 1, ",", ".") . "-" . number_format($bar20, 1, ",", ".") . " bar bei 4-20 °C <br/> ≙ " . number_format($psi38, 1, ",", ".") . "-" . number_format($psi68, 1, ",", ".") . " psi bei 38-68 °F <br/> ≙ " . number_format($vols, 1, ",", ".") . " volumes" . ($tt ? (",<br/>" . $tt) : "");
-            }
-            $content .= $this->formatString(
-                '<tr>
-                   <td>{label}</td>
-                   <td colspan="2"><span data-cmtooltip="{tt}">{value} g/l</span></td>
-                 </tr>',
-                [
-                    'label' => $label,
-                    'value' => $value,
-                    'tt' => $tt
-                ]);
-        }
-        
-        if ($recipe["age_days"]) {
-            if (($recipe["age_days"] % 7) == 0) {
-                $age = number_format($recipe["age_days"] / 7, 0, ",", ".") . " Wochen";
-            } else {
-                $age = number_format($recipe["age_days"], 0, ",", ".") . " Tage";
-            }
-            $d = null;
-            $tt = null;
-            if ($recipe["bottle_date"]) {
-                $d = new DateTime($this->renderDate($recipe["bottle_date"]));
-                date_add($d, new DateInterval('P' . $recipe["age_days"] . 'D'));
-                $tt = "trinkfertig: " . $this->renderDate($d->format("Y-m-d"));
-            } elseif ($recipe["brew_date"] && ($ferm_days > 0)) {
-                $d = new DateTime($this->renderDate($recipe["brew_date"]));
-                date_add($d, new DateInterval('P' . $ferm_days . 'D'));
-                date_add($d, new DateInterval('P' . $recipe["age_days"] . 'D'));
-                $tt = "trinkfertig: " . $this->renderDate($d->format("Y-m-d"));
-            }
-    		$content .= $this->formatString(
-                '<tr>
-                   <td>geplante Reifezeit</td>
-                   <td colspan="2"><span data-cmtooltip="{tt}">{age}</span></td>
-                 </tr>',
-                [
-                    'age' => $age,
-                    'tt' => $tt
-                ]);
-        }
-        
-        $content .= $this->formatString(
-            '<tr><th>Metadaten</th><th colspan="2"></th></tr>
-             {tr_brewer}
-             {tr_cobrewer}
-             {tr_type}
-             {tr_software}
-             {tr_equipment}
-             <tr><td>Letztes Update</td><td colspan="2">{updated_at}</td></tr>
-           </table',
-            [
-                'tr_brewer' => $recipe["brewer"] ? '<tr><td>Brauer</td><td colspan="2">' . $recipe["brewer"] . "</td></tr>" : "",
-                'tr_cobrewer' => $recipe["assistant"] ? '<tr><td>Co-Brauer</td><td colspan="2">' . $recipe["assistant"] . "</td></tr>" : "",
-                'tr_type' => $recipe["type"] ? '<tr><td>Brauart</td><td colspan="2">' . $this->recipeTypeWord($recipe["type"]) . "</td></tr>" : "",
-                'tr_software' => $recipe["source"] ? '<tr><td>Software / Datenquelle</td><td colspan="2">' . $recipe["source"] . "</td></tr>" : "",
-                'tr_equipment' => $recipe["equipment"] ? '<tr><td>Equipment</td><td colspan="2">' . $recipe["equipment"] . "</td></tr>" : "",
-                'updated_at' => $this->renderDate($recipe["updated_at"])
-            ]);
         
         return $content;
     }
@@ -2043,6 +2060,29 @@ class WP_Brewing {
         // $value = htmlentities($value);
         $value = trim($value);
         return $value;
+    }
+
+
+
+    function recipe_shortcode($atts) {
+
+    	$a = shortcode_atts (array(
+    		'source' => null
+        ), $atts);
+    	$source = $a['source'];
+        $content = null;
+        
+        if ((!$content) && (($source == "kbh") || (!$source))) {
+            $content = $this->kbh_recipe_shortcode($atts);
+        }
+        if ((!$content) && (($source == "gf") || (!$source))) {
+            $content = $this->gf_recipe_shortcode($atts);
+        }
+        if ((!$content) && (($source == "bs") || (!$source))) {
+            $content = $this->bs_recipe_shortcode($atts);
+        }
+        
+        return $content;
     }
 
 
@@ -2506,6 +2546,22 @@ class WP_Brewing {
 
 
     
+    function recipes_shortcode($atts) {
+
+        $att = shortcode_atts (array(
+            'mode' => null,
+            'year' => null,
+    		'source' => null,
+    		'type' => null,
+    		'tag' => null,
+    		'title' => null
+        ), $atts);
+
+        return $this->recipe_table($att["mode"], $att["year"], $att["source"], $att["type"], $att["tag"], $att["title"]);
+    }
+
+
+
     function kbh_recipes_shortcode($atts) {
 
         $att = shortcode_atts (array(
@@ -2513,29 +2569,19 @@ class WP_Brewing {
             'year' => null
         ), $atts);
 
-        return $this->kbh_process_table($att["mode"], $att["year"]);
+        return $this->recipe_table($att["mode"], $att["year"], "kbh", null, null, null);
     }
 
 
 
-    function kbh_process_table($mode, $year) {
+    function recipe_table($mode, $year, $source, $type, $tag, $title) {
         
         $content = "";
 
-        if ($year) {
-            $where = ' WHERE strftime("%Y",Braudatum) = "' . $year . '" AND BierWurdeGebraut = 1';
-        } else {
-            $where = "";
-        }
-        
         $category = get_option('wp_brewing_category', 'Sude');
 
-        $location = $this->getKbhLocation();
-
-    	$db = new SQLite3($location);
-
-        $query = "SELECT * FROM Sud" . $where . " ORDER BY Braudatum" . ((($mode == "xml") || ($mode == "steuer")) ? "" : " DESC");
-        $dbsude = $db->query($query);
+        $lines = [];
+        
         $query = new WP_Query( array(
             'posts_per_page' => 1000,
             'category_name' => $category ) );
@@ -2620,88 +2666,166 @@ class WP_Brewing {
         }
         $gesamtbetrag = 0;
         $n = 0;
-        while ($Sud = $dbsude->fetchArray()) {
-            if ($Sud["SW"] >= 5) {
-		        $m = $Sud["BierWurdeAbgefuellt"] ? $Sud["erg_AbgefuellteBiermenge"] : $Sud["Menge"];
-                $Gesamt += $m;
+
+        if (($source == "kbh") || (!$source)) {
+        
+            if ($year) {
+                $where = ' WHERE strftime("%Y",Braudatum) = "' . $year . '" AND BierWurdeGebraut = 1';
+            } else {
+                $where = "";
             }
-            if ($Gesamt <= 200 && (($mode == "steuer") || ($mode == "xml"))) {
-                continue;
+            
+            $location = $this->getKbhLocation();
+
+        	$db = new SQLite3($location);
+
+            $query = "SELECT * FROM Sud" . $where . " ORDER BY Braudatum" . ((($mode == "xml") || ($mode == "steuer")) ? "" : " DESC");
+            $dbsude = $db->query($query);
+        
+            while ($Sud = $dbsude->fetchArray()) {
+                if ($Sud["SW"] >= 5) {
+    		        $m = $Sud["BierWurdeAbgefuellt"] ? $Sud["erg_AbgefuellteBiermenge"] : $Sud["Menge"];
+                    $gesamt += $m;
+                }
+                if ($gesamt <= 200 && (($mode == "steuer") || ($mode == "xml"))) {
+                    continue;
+                }
+                /* find best matching WP post by comparing title prefix lengths */
+                $href = null; $maxl = 0;
+                foreach ($posts as $post) {
+                    for ($l = 1; $l < strlen($Sud["Sudname"]); $l++) {
+                        $sub = substr($Sud["Sudname"], 0, $l);
+                        if (strpos($post["title"], $sub) !== false) {
+                            if ($l > $maxl) {
+                                $maxl = $l;
+                                $href = $post["url"];
+                            }
+                        }
+                    }
+                }
+                if (($mode == "steuer") || ($mode == "xml")) {
+                    $n += 1;
+    		        $steuersatz = 0.4407;
+    		        $swfloor = $Sud["BierWurdeGebraut"] ? floor($Sud["SWAnstellen"]) : floor($Sud["SW"]);
+                    $litersatz = floor($steuersatz * $swfloor * 100) / 100;
+                    $mengehl = floor($m) / 100;
+                    $betrag = floor($mengehl * $litersatz * 100) / 100;
+                    $gesamtbetrag += $betrag;
+                    if ($swfloor >= 1.0) {
+                        if ($mode != "xml") {
+                            $line = $this->formatString('
+            <tr>
+              <td><a href="{href}">{Braudatum}</a></td>
+              <td>{Stammwuerze}</td>
+              <td>{Steuersatz}</td>
+              <td>{Litersatz}</td>
+              <td>{Menge}</td>
+              <td>{Betrag}</td>
+            </tr>', [
+                'href' => $href,
+                'Sudname' => $Sud["Sudname"],
+                'Braudatum' => $Sud["Braudatum"],
+                'Stammwuerze' => $swfloor,
+                'Steuersatz' => number_format($steuersatz, 4, ",", "."),
+                'Litersatz' => number_format($litersatz, 2, ",", "."),
+                'Menge' => number_format($mengehl, 2, ",", "."),
+                'Betrag' => number_format($betrag, 2, ",", "."),
+            ]);
+                        } else {
+                            $line = $this->formatString('
+                <element id="steuerklasse{n}">{plato}</element>
+                <element id="steuersatz{n}">{steuersatz}</element>
+                <element id="steuerbetrag{nhack}">{steuerbetrag}</element>
+                <element id="versteuerung{n}">{versteuerung}</element>
+                <element id="betrag{n}">{betrag}</element>', [
+                    'n' => $n,
+                    'nhack' => $n <= 1 ? $n : $n + 20,
+                    'plato' => $swfloor,
+                    'steuersatz' => number_format($steuersatz, 4, ".", ","),
+                    'steuerbetrag' => number_format($litersatz, 2, ".", ","),
+                    'versteuerung' => number_format($mengehl, 2, ".", ","),
+                    'betrag' => number_format($betrag, 2, ".", ","),
+                ]);
+                        }
+                    }
+    	        } else {
+                    $status = ($Sud["BierWurdeGebraut"]) ? (($Sud["BierWurdeVerbraucht"]) ? STATUS_EMPTIED : (($Sud["BierWurdeAbgefuellt"]) ? (       (date_add(new DateTime($this->renderDate($this->localToUtc($Sud["Abfuelldatum"]))), new DateInterval('P' . 7 * $Sud["Reifezeit"] . 'D'))->format("Y-m-d") < date("o-m-d"))       ? STATUS_COMPLETE : STATUS_CONDITIONING) : STATUS_FERMENTATION)) : ($this->localToUtc($Sud["Braudatum"] == date("o-m-d") ? STATUS_BREWDAY : STATUS_PREPARING));
+                    $status = $this->statusWord($status);
+    		        $line = $this->formatString('
+            <tr>
+              <td><a href="{href}">{Sudname}</a></td>
+              <td>{Status}</td>
+              <td>{Braudatum}</td>
+            </tr>', [
+    			'href' => $href,
+    			'Sudname' => $Sud["Sudname"],
+    			'Status' => $status,
+    			'Braudatum' => $Sud["Braudatum"]
+            ]);
+                }
+                array_push($lines, [ 'line' => $line, 'key' => $Sud["Braudatum"] ]);
             }
-            /* find best matching WP post by comparing title prefix lengths */
-            $href = null; $maxl = 0;
-            foreach ($posts as $post) {
-                for ($l = 1; $l < strlen($Sud["Sudname"]); $l++) {
-                    $sub = substr($Sud["Sudname"], 0, $l);
-                    if (strpos($post["title"], $sub) !== false) {
-                        if ($l > $maxl) {
-                            $maxl = $l;
-                            $href = $post["url"];
+        }
+
+        if (($source == "bf") || (!$source)) {
+        
+            $location = $this->getBfLocation();
+            $json = file_get_contents($location);
+            $all = json_decode($json, true);
+            $bf_batch = null;
+            $bf_recipe = null;
+
+            // filter by type, tag and year
+            if (($type == "batch") || (!$type)) {
+                foreach ($all["data"]["batches"] as $batch) {
+                    if ((!$tag) || (in_array($tag, $batch["searchTags"]))) {
+                        if ((!$title) || (fnmatch($title, $batch["name"]))) { 
+                            $date = substr($this->secsToDate($batch["brewDate"] / 1000), 0, 10);
+                            $y = substr($date, 0, 4);
+                            if ((!$year) || ($year == $y)) {
+                                $href = null; $maxl = 0;
+                                foreach ($posts as $post) {
+                                    for ($l = 1; $l < strlen($batch["name"]); $l++) {
+                                        $sub = substr($batch["name"], 0, $l);
+                                        if (strpos($post["title"], $sub) !== false) {
+                                            if ($l > $maxl) {
+                                                $maxl = $l;
+                                                $href = $post["url"];
+                                            }
+                                        }
+                                    }
+                                }
+                                $status = (($batch["status"] == "Planning") ? STATUS_PREPAIRING : (($batch["status"] == "Archived") ? STATUS_EMPTIED : (($batch["status"] == "Completed") ? STATUS_COMPLETE : (($batch["status"] == "Fermenting") ? STATUS_FERMENTATION : STATUS_BREWDAY))));
+                                $status = $this->statusWord($status);
+                                $line = $this->formatString('
+                <tr>
+                  <td><a href="{href}">{name}</a></td>
+                  <td>{status}</td>
+                  <td>{date}</td>
+                </tr>', [
+        			'href' => $href,
+        			'name' => $batch["name"],
+        			'status' => $status,
+        			'date' => $date
+                ]);
+                                array_push($lines, [ 'line' => $line, 'key' => $date ]);
+                            }
                         }
                     }
                 }
             }
-            if (($mode == "steuer") || ($mode == "xml")) {
-                $n += 1;
-		        $steuersatz = 0.4407;
-		        $swfloor = $Sud["BierWurdeGebraut"] ? floor($Sud["SWAnstellen"]) : floor($Sud["SW"]);
-                $litersatz = floor($steuersatz * $swfloor * 100) / 100;
-                $mengehl = floor($m) / 100;
-                $betrag = floor($mengehl * $litersatz * 100) / 100;
-                $gesamtbetrag += $betrag;
-                if ($swfloor >= 1.0) {
-                    if ($mode != "xml") {
-                        $content .= $this->formatString('
-        <tr>
-          <td><a href="{href}">{Braudatum}</a></td>
-          <td>{Stammwuerze}</td>
-          <td>{Steuersatz}</td>
-          <td>{Litersatz}</td>
-          <td>{Menge}</td>
-          <td>{Betrag}</td>
-        </tr>', [
-            'href' => $href,
-            'Sudname' => $Sud["Sudname"],
-            'Braudatum' => $Sud["Braudatum"],
-            'Stammwuerze' => $swfloor,
-            'Steuersatz' => number_format($steuersatz, 4, ",", "."),
-            'Litersatz' => number_format($litersatz, 2, ",", "."),
-            'Menge' => number_format($mengehl, 2, ",", "."),
-            'Betrag' => number_format($betrag, 2, ",", "."),
-        ]);
-                    } else {
-                        $content .= $this->formatString('
-            <element id="steuerklasse{n}">{plato}</element>
-            <element id="steuersatz{n}">{steuersatz}</element>
-            <element id="steuerbetrag{nhack}">{steuerbetrag}</element>
-            <element id="versteuerung{n}">{versteuerung}</element>
-            <element id="betrag{n}">{betrag}</element>', [
-                'n' => $n,
-                'nhack' => $n <= 1 ? $n : $n + 20,
-                'plato' => $swfloor,
-                'steuersatz' => number_format($steuersatz, 4, ".", ","),
-                'steuerbetrag' => number_format($litersatz, 2, ".", ","),
-                'versteuerung' => number_format($mengehl, 2, ".", ","),
-                'betrag' => number_format($betrag, 2, ".", ","),
-            ]);
-                    }
+            if (($type == "recipe") || (!$type)) {
+                foreach ($all["data"]["recipes"] as $recipe) {
+                    // TBD
                 }
-	        } else {
-                $status = ($Sud["BierWurdeGebraut"]) ? (($Sud["BierWurdeVerbraucht"]) ? STATUS_EMPTIED : (($Sud["BierWurdeAbgefuellt"]) ? (       (date_add(new DateTime($this->renderDate($this->localToUtc($Sud["Abfuelldatum"]))), new DateInterval('P' . 7 * $Sud["Reifezeit"] . 'D'))->format("Y-m-d") < date("o-m-d"))       ? STATUS_COMPLETE : STATUS_CONDITIONING) : STATUS_FERMENTATION)) : ($this->localToUtc($Sud["Braudatum"] == date("o-m-d") ? STATUS_BREWDAY : STATUS_PREPARING));
-                $status = $this->statusWord($status);
-		        $content .= $this->formatString('
-        <tr>
-          <td><a href="{href}">{Sudname}</a></td>
-          <td>{Status}</td>
-          <td>{Braudatum}</td>
-        </tr>', [
-			'href' => $href,
-			'Sudname' => $Sud["Sudname"],
-			'Status' => $status,
-			'Braudatum' => $Sud["Braudatum"]
-        ]);
             }
         }
+            
+        usort($lines, 'recipe_lines_cmp');
+        foreach ($lines as $line) {
+            $content .= $line["line"];
+        }
+        
         if ($mode == "steuer") {
             $content .= $this->formatString('
         <tr>
@@ -2717,8 +2841,6 @@ class WP_Brewing {
       ]);
         } elseif ($mode != "xml") {
             $content .= '
-      <tr>
-        <td colspan="2" style="font-size:10pt; text-align:center">Rezepte erstellt mit dem <a href="http://www.joerum.de/kleiner-brauhelfer/doku.php">Kleinen Brauhelfer</a><xsl:text> </xsl:text><xsl:value-of select="Version/kleiner-brauhelfer"/>.</td>
       </tr>
     </table>';
         } else {
@@ -2750,7 +2872,7 @@ class WP_Brewing {
         header("Content-type: application/xml");
         header("Content-Disposition:attachment; filename={$filename}");
 
-        echo $this->kbh_process_table("xml", $year);
+        echo $this->recipe_table("xml", $year, "kbh", null, null, null);
 
         exit();
     }
@@ -2943,25 +3065,17 @@ class WP_Brewing {
 
         $att = shortcode_atts (array(
             'mode' => null,
-            'year' => null
+            'year' => null,
+            'type' => null,
+            'tag' => null,
+            'title' => null
         ), $atts);
 
-        return $this->bf_process_table($att["mode"], $att["year"]);
+        return $this->recipe_table($att["mode"], $att["year"], "bf", $att["type"], $att["tag"], $att["title"]);
     }
 
 
 
-    function bf_process_table($mode, $year) {
-        
-        $content = "";
-
-        $content = "TBD";
-
-        return $content;
-    }
-
-    
-        
     function bs_recipe_shortcode($atts) {
 
     	$a = shortcode_atts (array(
