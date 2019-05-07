@@ -3,7 +3,7 @@
 /**
  * Plugin Name:       WP Brewing
  * Plugin URI:        https://frankensteiner.familie-steinberg.org/wp-brewing/
- * Description:       Embed brew recipes and other data from "Kleiner Brauhelfer" or "BeerSmith" into posts and pages.
+ * Description:       Embed brew recipes and other data from "Kleiner Brauhelfer", "Brewfather" or "BeerSmith" into posts and pages.
  * Version:           0.0.1
  * Author:            Frank Steinberg
  * Author URI:        https://frankensteiner.familie-steinberg.org/
@@ -12,7 +12,7 @@
  * Text Domain:       wp-brewing
  * Domain Path:       /languages
  *
- * Please note that this peace of software is neither complete, nor stable or well documented. Use at your own risk.
+ * Please note that this software is neither complete, nor stable or well documented. Use at your own risk.
  *
  */
 
@@ -74,7 +74,7 @@ define("FLOC_HIGH", 3);
 
 
 function recipe_lines_cmp($a, $b) {
-    return $a["key"] < $b["key"];
+    return $a["date"] > $b["date"];
 }
 
     
@@ -90,7 +90,7 @@ function adjuncts_cmp($a, $b) {
     }
 }
 
-    
+
 
 function gaben_cmp($a, $b) {
     return $a["Zeit"] < $b["Zeit"];
@@ -2604,6 +2604,8 @@ class WP_Brewing {
         /* fix glossary link color on white heading line */
         table.wp-brewing-recipes tr th a.glossaryLink { color:#333 }
         table.wp-brewing-recipes tr th a.glossaryLink:hover { color:#333 }
+        table.wp-brewing-recipes td.dash { text-decoration: line-through } 
+
       </style>';
             if ($mode == "steuer") {
                 $content .= '
@@ -2613,6 +2615,7 @@ class WP_Brewing {
         <th>€/(hl°P)</th>
         <th>€/hl</th>
         <th>hl</th>
+        <th>∑hl</th>
         <th>€</th>
       </tr>';
             } else {
@@ -2664,8 +2667,6 @@ class WP_Brewing {
                 'steuerlagernummer' => current_user_can('administrator') ? get_option('wp_brewing_2075_steuerlagernummer', '') : ""
             ]);
         }
-        $gesamtbetrag = 0;
-        $n = 0;
 
         if (($source == "kbh") || (!$source)) {
         
@@ -2683,13 +2684,9 @@ class WP_Brewing {
             $dbsude = $db->query($query);
         
             while ($Sud = $dbsude->fetchArray()) {
-                if ($Sud["SW"] >= 5) {
-    		        $m = $Sud["BierWurdeAbgefuellt"] ? $Sud["erg_AbgefuellteBiermenge"] : $Sud["Menge"];
-                    $gesamt += $m;
-                }
-                if ($gesamt <= 200 && (($mode == "steuer") || ($mode == "xml"))) {
-                    continue;
-                }
+
+                $m = $Sud["BierWurdeAbgefuellt"] ? $Sud["erg_AbgefuellteBiermenge"] : $Sud["Menge"];
+
                 /* find best matching WP post by comparing title prefix lengths */
                 $href = null; $maxl = 0;
                 foreach ($posts as $post) {
@@ -2703,67 +2700,27 @@ class WP_Brewing {
                         }
                     }
                 }
-                if (($mode == "steuer") || ($mode == "xml")) {
-                    $n += 1;
-    		        $steuersatz = 0.4407;
-    		        $swfloor = $Sud["BierWurdeGebraut"] ? floor($Sud["SWAnstellen"]) : floor($Sud["SW"]);
-                    $litersatz = floor($steuersatz * $swfloor * 100) / 100;
-                    $mengehl = floor($m) / 100;
-                    $betrag = floor($mengehl * $litersatz * 100) / 100;
-                    $gesamtbetrag += $betrag;
-                    if ($swfloor >= 1.0) {
-                        if ($mode != "xml") {
-                            $line = $this->formatString('
-            <tr>
-              <td><a href="{href}">{Braudatum}</a></td>
-              <td>{Stammwuerze}</td>
-              <td>{Steuersatz}</td>
-              <td>{Litersatz}</td>
-              <td>{Menge}</td>
-              <td>{Betrag}</td>
-            </tr>', [
-                'href' => $href,
-                'Sudname' => $Sud["Sudname"],
-                'Braudatum' => $Sud["Braudatum"],
-                'Stammwuerze' => $swfloor,
-                'Steuersatz' => number_format($steuersatz, 4, ",", "."),
-                'Litersatz' => number_format($litersatz, 2, ",", "."),
-                'Menge' => number_format($mengehl, 2, ",", "."),
-                'Betrag' => number_format($betrag, 2, ",", "."),
-            ]);
-                        } else {
-                            $line = $this->formatString('
-                <element id="steuerklasse{n}">{plato}</element>
-                <element id="steuersatz{n}">{steuersatz}</element>
-                <element id="steuerbetrag{nhack}">{steuerbetrag}</element>
-                <element id="versteuerung{n}">{versteuerung}</element>
-                <element id="betrag{n}">{betrag}</element>', [
-                    'n' => $n,
-                    'nhack' => $n <= 1 ? $n : $n + 20,
-                    'plato' => $swfloor,
-                    'steuersatz' => number_format($steuersatz, 4, ".", ","),
-                    'steuerbetrag' => number_format($litersatz, 2, ".", ","),
-                    'versteuerung' => number_format($mengehl, 2, ".", ","),
-                    'betrag' => number_format($betrag, 2, ".", ","),
+
+                $steuersatz = 0.4407;
+                $steuerklasse = $Sud["BierWurdeGebraut"] ? floor($Sud["SWAnstellen"]) : floor($Sud["SW"]);
+                $litersatz = floor($steuersatz * $steuerklasse * 100) / 100;
+                $mengehl = floor($m) / 100;
+                $betrag = floor($mengehl * $litersatz * 100) / 100;
+
+                $status = ($Sud["BierWurdeGebraut"]) ? (($Sud["BierWurdeVerbraucht"]) ? STATUS_EMPTIED : (($Sud["BierWurdeAbgefuellt"]) ? (       (date_add(new DateTime($this->renderDate($this->localToUtc($Sud["Abfuelldatum"]))), new DateInterval('P' . 7 * $Sud["Reifezeit"] . 'D'))->format("Y-m-d") < date("o-m-d"))       ? STATUS_COMPLETE : STATUS_CONDITIONING) : STATUS_FERMENTATION)) : ($this->localToUtc($Sud["Braudatum"] == date("o-m-d") ? STATUS_BREWDAY : STATUS_PREPARING));
+                $status = $this->statusWord($status);
+                
+                array_push($lines, [
+                    'name' => $Sud["Sudname"],
+                    'href' => $href,
+                    'status' => $status,
+                    'date' => $Sud["Braudatum"],
+                    'steuerklasse' => $steuerklasse,
+                    'steuersatz' => $steuersatz,
+                    'steuerbetrag' => $litersatz,
+                    'versteuerung' => $mengehl,
+                    'betrag' => $betrag
                 ]);
-                        }
-                    }
-    	        } else {
-                    $status = ($Sud["BierWurdeGebraut"]) ? (($Sud["BierWurdeVerbraucht"]) ? STATUS_EMPTIED : (($Sud["BierWurdeAbgefuellt"]) ? (       (date_add(new DateTime($this->renderDate($this->localToUtc($Sud["Abfuelldatum"]))), new DateInterval('P' . 7 * $Sud["Reifezeit"] . 'D'))->format("Y-m-d") < date("o-m-d"))       ? STATUS_COMPLETE : STATUS_CONDITIONING) : STATUS_FERMENTATION)) : ($this->localToUtc($Sud["Braudatum"] == date("o-m-d") ? STATUS_BREWDAY : STATUS_PREPARING));
-                    $status = $this->statusWord($status);
-    		        $line = $this->formatString('
-            <tr>
-              <td><a href="{href}">{Sudname}</a></td>
-              <td>{Status}</td>
-              <td>{Braudatum}</td>
-            </tr>', [
-    			'href' => $href,
-    			'Sudname' => $Sud["Sudname"],
-    			'Status' => $status,
-    			'Braudatum' => $Sud["Braudatum"]
-            ]);
-                }
-                array_push($lines, [ 'line' => $line, 'key' => $Sud["Braudatum"] ]);
             }
         }
 
@@ -2797,18 +2754,17 @@ class WP_Brewing {
                                 }
                                 $status = (($batch["status"] == "Planning") ? STATUS_PREPAIRING : (($batch["status"] == "Archived") ? STATUS_EMPTIED : (($batch["status"] == "Completed") ? STATUS_COMPLETE : (($batch["status"] == "Fermenting") ? STATUS_FERMENTATION : STATUS_BREWDAY))));
                                 $status = $this->statusWord($status);
-                                $line = $this->formatString('
-                <tr>
-                  <td><a href="{href}">{name}</a></td>
-                  <td>{status}</td>
-                  <td>{date}</td>
-                </tr>', [
-        			'href' => $href,
-        			'name' => $batch["name"],
-        			'status' => $status,
-        			'date' => $date
-                ]);
-                                array_push($lines, [ 'line' => $line, 'key' => $date ]);
+                                array_push($lines, [
+                                    'name' => $batch["name"],
+                                    'href' => $href,
+                                    'status' => $status,
+                                    'date' => $date,
+                                    'steuerklasse' => $steuerklasse,
+                                    'steuersatz' => $steuersatz,
+                                    'steuerbetrag' => $litersatz,
+                                    'versteuerung' => $mengehl,
+                                    'betrag' => $betrag
+                                ]);
                             }
                         }
                     }
@@ -2822,20 +2778,94 @@ class WP_Brewing {
         }
             
         usort($lines, 'recipe_lines_cmp');
+        $gesamt = 0;
+        $gesamtbetrag = 0;
+        $n = 0;
         foreach ($lines as $line) {
-            $content .= $line["line"];
+
+            if ($line["steuerklasse"] >= 1) {
+                $gesamt += $line["versteuerung"];
+            }
+
+            if ($gesamt > 2.0) {
+                $n += 1;
+                $gesamtbetrag += $line["betrag"];
+                $steuermenge += $line["versteuerung"];
+            }
+            
+            // if ($line["steuerklasse"] >= 1.0) {
+
+            if ($mode == "steuer") {
+                $line = $this->formatString('
+            <tr>
+              <td><a href="{href}">{Braudatum}</a></td>
+              <td>{Stammwuerze}</td>
+              <td>{Steuersatz}</td>
+              <td>{Litersatz}</td>
+              <td>{Menge}</td>
+              <td>{MengeGesamt}</td>
+              <td{dash}>{Betrag}</td>
+            </tr>',
+                                            [
+                                                'dash' => (($n == 0) || ($line["betrag"] == 0)) ? " class='dash'" : "",
+                                                'href' => $line["href"],
+                                                'Sudname' => $line["name"],
+                                                'Braudatum' => $line["date"],
+                                                'Stammwuerze' => $line["steuerklasse"],
+                                                'Steuersatz' => number_format($line["steuersatz"], 4, ",", "."),
+                                                'Litersatz' => number_format($line["steuerbetrag"], 2, ",", "."),
+                                                'Menge' => number_format($line["versteuerung"], 2, ",", "."),
+                                                'MengeGesamt' => number_format($gesamt, 2, ",", "."),
+                                                'Betrag' => number_format($line["betrag"], 2, ",", "."),
+                                            ]);
+            }
+            if ($mode == "xml") {
+                $line = $this->formatString('
+                <element id="steuerklasse{n}">{plato}</element>
+                <element id="steuersatz{n}">{steuersatz}</element>
+                <element id="steuerbetrag{nhack}">{steuerbetrag}</element>
+                <element id="versteuerung{n}">{versteuerung}</element>
+                <element id="betrag{n}">{betrag}</element>',
+                                            [
+                                                'n' => $n,
+                                                'nhack' => $n <= 1 ? $n : $n + 20,
+                                                'plato' => $line["steuerklasse"],
+                                                'steuersatz' => number_format($line["steuersatz"], 4, ".", ","),
+                                                'steuerbetrag' => number_format($line["steuerbetrag"], 2, ".", ","),
+                                                'versteuerung' => number_format($line["versteuerung"], 2, ".", ","),
+                                                'betrag' => number_format($line["betrag"], 2, ".", ","),
+                                            ]);
+            }
+            if (($mode != "xml") && ($mode != "steuer")) {
+                $line = $this->formatString('
+                <tr>
+                  <td><a href="{href}">{name}</a></td>
+                  <td>{status}</td>
+                  <td>{date}</td>
+                </tr>',
+                                            [
+                                                'href' => $line["href"],
+                                                'name' => $line["name"],
+                                                'status' => $line["status"],
+                                                'date' => $line["date"]
+                                            ]);
+            }
+
+            $content .= $line;
         }
         
         if ($mode == "steuer") {
             $content .= $this->formatString('
         <tr>
           <td colspan="5">Zu entrichtende Steuer</td>
+          <td>{SteuerMenge}</td>
           <td>{Summe}</td>
         </tr>
         <tr>
           <td colspan="6">Diese Daten können als <a href="{url}">XML-Datei</a> heruntergeladen werden, um sie in ein <a href="https://www.formulare-bfinv.de/ffw/action/invoke.do?id=2075">Online-Steuerformular 2075</a> hochzuladen und auszudrucken.</td>
         </tr>
       </table>', [
+          'SteuerMenge' => number_format($steuermenge, 2, ",", "."),
           'Summe' => number_format($gesamtbetrag, 2, ",", "."),
           'url' => "?download_2075=" . $year
       ]);
