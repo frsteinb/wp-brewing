@@ -16,6 +16,28 @@ However, if you would be willing to contribute, you are very welcome.
 
 See [LICENSE.txt][1]
 
+### Minimal documentaion
+
+To get started:
+
+- Install the plugin, the Makefile should give a hint, which files
+  have to be copied.
+- Activate the plugin and go the the WP brewing settings page and
+  do your adjustments.
+- Now, it should be possible to use some new shortcodes, e.g.:
+```
+[brew-recipe source="bf" title="#022 Wilma Saison" /]
+```
+```
+[brew-recipe source="kbh" title="#020*" /]
+```
+```
+[brew-recipes year="2019" title="#*" /]
+```
+```
+[brew-recipes mode='steuer' year="2018" source="kbh"/]
+```
+
 [1]: LICENSE.txt
 
 

@@ -2075,8 +2075,8 @@ class WP_Brewing {
         if ((!$content) && (($source == "kbh") || (!$source))) {
             $content = $this->kbh_recipe_shortcode($atts);
         }
-        if ((!$content) && (($source == "gf") || (!$source))) {
-            $content = $this->gf_recipe_shortcode($atts);
+        if ((!$content) && (($source == "bf") || (!$source))) {
+            $content = $this->bf_recipe_shortcode($atts);
         }
         if ((!$content) && (($source == "bs") || (!$source))) {
             $content = $this->bs_recipe_shortcode($atts);
