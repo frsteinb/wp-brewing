@@ -14,7 +14,7 @@ However, if you would be willing to contribute, you are very welcome.
 
 ### License
 
-See [LICENSE.txt][1]
+See [LICENSE.txt][2]
 
 ### Minimal documentaion
 
@@ -38,6 +38,9 @@ To get started:
 [brew-recipes mode='steuer' year="2018" source="kbh"/]
 ```
 
-[1]: LICENSE.txt
+You can see things in action on [my personal blog][1].
+
+[1]: https://frankensteiner.familie-steinberg.org.
+[2]: LICENSE.txt
 
 
