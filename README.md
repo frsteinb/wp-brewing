@@ -42,5 +42,3 @@ You can see things in action on [my personal blog][1].
 
 [1]: https://frankensteiner.familie-steinberg.org.
 [2]: LICENSE.txt
-
-
