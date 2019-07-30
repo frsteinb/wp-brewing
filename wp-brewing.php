@@ -79,6 +79,12 @@ function recipe_lines_cmp($a, $b) {
 
     
 
+function recipe_cmp($a, $b) {
+    return $a["brew_date"] > $b["brew_date"];
+}
+
+
+
 function adjuncts_cmp($a, $b) {
     if ($a["usage"] < $b["usage"]) {
         return -1;
@@ -135,9 +141,6 @@ class WP_Brewing {
 
         add_shortcode('bf-recipe', array($this, 'bf_recipe_shortcode'));
         add_shortcode('bf-recipes', array($this, 'bf_recipes_shortcode'));
-
-        add_shortcode('bs-recipe', array($this, 'bs_recipe_shortcode'));
-        add_shortcode('bs-recipes', array($this, 'bs_recipes_shortcode'));
 
         add_shortcode('bjcp-styleguide', array($this, 'bjcp_styleguide_shortcode'));
         add_shortcode('bjcp-style', array($this, 'bjcp_style_shortcode'));
@@ -660,6 +663,9 @@ class WP_Brewing {
 
     function renderStyleList() {
         $styleguide_name = get_option('wp_brewing_bjcp_name', 'styleguide');
+        global $query;
+        $original_query = $query;
+        $query = null;
         $query = new WP_Query( array(
             'post_type' => 'attachment',
             'name' => $styleguide_name ) );
@@ -682,6 +688,10 @@ class WP_Brewing {
         }
         $content .= $list;
 
+        $query = null;
+        $query = $original_query;
+        wp_reset_postdata();
+
         return $content;
     }
 
@@ -689,6 +699,9 @@ class WP_Brewing {
 
     function renderStyle($id_or_name) {
         $styleguide_name = get_option('wp_brewing_bjcp_name', 'styleguide');
+        global $query;
+        $original_query = $query;
+        $query = null;
         $query = new WP_Query( array(
             'post_type' => 'attachment',
             'name' => $styleguide_name ) );
@@ -872,6 +885,9 @@ class WP_Brewing {
                     ]);
             }
         }
+        $query = null;
+        $query = $original_query;
+        wp_reset_postdata();
         return $content;
     }
 
@@ -977,8 +993,11 @@ class WP_Brewing {
             }
             $match = ((!$phase) || ($rendered_time == $phase)) && (! in_array($rendered_time, $excludePhases));
             if ($h["time"] > 0) {
-                // $rendered_time .= ", " . $h["time"] . " Tage";
-                $rendered_time = $h["time"] . " Tage";
+                if ($h["time_unit"] == "day") {
+                    $rendered_time = "Tag " . $h["time"];
+                } else {
+                    $rendered_time = $h["time"] . " Tage";
+                }
             }
             $dose = number_format($h["amount"] / $recipe["planned_batch_volume"], 1, ",", ".") . " g/l";
             if ($match) {
@@ -1272,6 +1291,9 @@ class WP_Brewing {
                 if ($recipe["current_g"]) {
                     $value = number_format($this->sgToPlato($recipe["current_g"]), 1, ",", ".");
                     $label = "Bisheriger Restextrakt";
+                    if ($recipe["current_g_source"]) {
+                        $label .= " (" . $recipe["current_g_source"] . ")";
+                    }
                     $tt = $label . ": " . $value . " GG% (SG " . number_format($recipe["current_g"], 3, ",", ".") . ")" . ($tt ? (",<br/>" . $tt) : "");
                 }
                 if ($recipe["estimated_fg"]) {
@@ -1298,9 +1320,13 @@ class WP_Brewing {
             
             if ($recipe["abv"] or (($recipe["og"] or $recipe["planned_og"]) and ($recipe["fg"] or $recipe["current_g"] or $recipe["estimated_fg"]))) {
                 $tt = null;
-                if ((! $this->calcAbv($recipe["planned_og"], $recipe["estimated_fg"])) && (! $this->calcAbv($recipe["og"], $recipe["fg"])) && (! $this->calcAbv($recipe["og"], $recipe["fg"]))) {
+                // if ((! $this->calcAbv($recipe["planned_og"], $recipe["estimated_fg"])) && (! $this->calcAbv($recipe["og"], $recipe["fg"])) && (! $this->calcAbv($recipe["og"], $recipe["fg"]))) {
+                if (($this->calcAbv($recipe["og"], $recipe["current_g"])) && (($recipe["status"] >= STATUS_FERMENTATION) && ($recipe["status"] < STATUS_FERMENTATION_SECONDARY))) {
                     $value = number_format($this->calcAbv($recipe["og"], $recipe["current_g"]), 1, ",", ".");
                     $label = "Bisheriger Alkohol";
+                    if ($recipe["current_g_source"]) {
+                        $label .= " (" . $recipe["current_g_source"] . ")";
+                    }
                     $tt = $label . ": " . $value . " %vol, " . number_format($this->calcAbw($recipe["og"], $recipe["current_g"]), 1, ",", ".") . " %gew" . ($tt ? (",<br/>" . $tt) : "");
                 }
                 if ($this->calcAbv($recipe["planned_og"], $recipe["estimated_fg"])) {
@@ -1310,7 +1336,7 @@ class WP_Brewing {
                 }
                 if ($this->calcAbv($recipe["og"], $recipe["fg"])) {
                     $value = number_format($this->calcAbv($recipe["og"], $recipe["fg"]), 1, ",", ".");
-                    $label = "Berechneter Alkohol ohne Nachgärung" . $t;
+                    $label = "Berechneter Alkohol" . $t;
                     $tt = $label . ": " . $value . " %vol, " . number_format($this->calcAbw($recipe["og"], $recipe["fg"]), 1, ",", ".") . " %gew" . ($tt ? (",<br/>" . $tt) : "");
                 }
                 if ($recipe["abv"]) {
@@ -1421,15 +1447,59 @@ class WP_Brewing {
                 foreach ($recipe["fermentables"] as $f) {
                     $grainsum = $grainsum + $f["amount"];
                 }
+                $x = 1; // TBD
                 $content .= $this->formatString(
                     '<tr>
-                       <th>Schüttung / Maischen</th>
+                       <th>{wasser}Schüttung / Maischen / Läutern</th>
                        <th colspan="2"><span data-cmtooltip="{tt}">{grainsum} kg</span></th>
                      </tr>',
                     [
+                        'wasser' => ($x || $recipe["planned_residual_alkalinity"]) ? "Wasser / " : "",
                         'grainsum' => number_format($grainsum, 3, ",", "."),
                         'tt' => number_format($this->kgToLb($grainsum), 3, ".", ",") . " lb"
                     ]);
+
+                if ($recipe["planned_residual_alkalinity"]) {
+                    $content .= $this->formatString(
+                        '<tr>
+                           <td>geplante Brauwasser-Restalkalität</td>
+                           <td colspan="2"><span data-cmtooltip="{tt}">{value} °dH</span></td>
+                         </tr>',
+                        [
+                            'value' => number_format($this->ppmToDh($recipe["planned_residual_alkalinity"]), 1, ",", "."),
+                            'tt' => number_format($recipe["planned_residual_alkalinity"], 1, ",", ".") . " ppm"
+                        ]);
+                }
+
+                /*
+                foreach ($recipe["adjuncts"] as $a) {
+                    if ($a["usage"] != USAGE_MASH) continue;
+                    if (! $a["water_adj"]) continue;
+                    $rendered_name = $a["name"];
+                    if (strlen($a["url"]) >= 1) {
+                        $rendered_name = '<a href="' . $a["url"] . '">' . $rendered_name . '</a>';
+                    }
+                    $unit = $a["unit"];
+                    if ($unit == "kg") {
+                        $dose = number_format($a["amount"] / $recipe["planned_batch_volume"] * 1000, 0, ",", ".") . " " . "g" . "/l";
+                    } else {
+                        $dose = number_format($a["amount"] / $recipe["planned_batch_volume"], 3, ",", ".") . " " . $unit . "/l";
+                    }
+        			$content .= $this->formatString(
+                        '<tr>
+                           <td>{rendered_name}</td>
+                           <td>{dose}</td>
+                           <td style="text-align:right"><span data-cmtooltip="{tt_amount}">{amount} {unit}</span></td>
+                         </tr>',
+                        [
+                            'rendered_name' => $rendered_name,
+                            'dose' => $dose,
+                            'amount' => number_format($a["amount"], ($unit == "g" ? 1 : 3), ",", "."),
+                            'unit' => $unit,
+                            'tt_amount' => ($unit == "g") ? number_format($this->gToOz($a["amount"]), 2, ",", ".") . " oz" : ""
+                        ]);
+                }
+                */
                 foreach ($recipe["fermentables"] as $f) {
                     if ($f["usage"] != USAGE_MASH) continue;
                     $rendered_name = $f["name"];
@@ -1452,6 +1522,7 @@ class WP_Brewing {
                 }
                 foreach ($recipe["adjuncts"] as $a) {
                     if ($a["usage"] != USAGE_MASH) continue;
+                    if ($a["water_adj"]) continue;
                     $rendered_name = $a["name"];
                     if (strlen($a["url"]) >= 1) {
                         $rendered_name = '<a href="' . $a["url"] . '">' . $rendered_name . '</a>';
@@ -1477,18 +1548,6 @@ class WP_Brewing {
                         ]);
                 }
                 // TBD: hops during mash? not really required. :-)
-            }
-
-            if ($recipe["planned_residual_alkalinity"]) {
-                $content .= $this->formatString(
-                    '<tr>
-                       <td>geplante Brauwasser-Restalkalität</td>
-                       <td colspan="2"><span data-cmtooltip="{tt}">{value} °dH</span></td>
-                     </tr>',
-                    [
-                        'value' => number_format($this->ppmToDh($recipe["planned_residual_alkalinity"]), 1, ",", "."),
-                        'tt' => number_format($recipe["planned_residual_alkalinity"], 1, ",", ".") . " ppm"
-                    ]);
             }
 
             if ($recipe["mash_ph"]) {
@@ -1518,21 +1577,27 @@ class WP_Brewing {
             }
 
             $sparge_water_temp = 78; // default
+            $mashoutdone = false;
             if ($recipe["mash_steps"]) {
                 foreach ($recipe["mash_steps"] as $m) {
-        			$content .= $this->formatString(
-                        '<tr>
-                           <td>{name}</td>
-                           <td><span data-cmtooltip="{tt}">{temp} °C</span></td>
-                           <td>{time} Minuten</td>
-                         </tr>',
-                        [
-                            'name' => $m["name"],
-                            'temp' => number_format($m["temp"], 0, ",", "."),
-                            'time' => number_format($m["time"], 0, ",", "."),
-                            'tt' => number_format($this->cToF($m["temp"]), 0, ",", ".") . " °F"
-                        ]);
+                    if (! $mashoutdone) {
+            			$content .= $this->formatString(
+                            '<tr>
+                               <td>{name}</td>
+                               <td><span data-cmtooltip="{tt}">{temp} °C</span></td>
+                               <td>{time} Minuten</td>
+                             </tr>',
+                            [
+                                'name' => $m["name"],
+                                'temp' => number_format($m["temp"], 0, ",", "."),
+                                'time' => number_format($m["time"], 0, ",", "."),
+                                'tt' => number_format($this->cToF($m["temp"]), 0, ",", ".") . " °F"
+                            ]);
+                    }
                     $sparge_water_temp = $m["temp"];
+                    if ((strcasecmp($m["name"], "Abmaischen") == 0) || (strcasecmp($m["name"], "Mash Out") == 0)) {
+                        $mashoutdone = true;
+                    }
                 }
             }
 
@@ -1551,6 +1616,59 @@ class WP_Brewing {
                     ]);
             }
 
+            $mashoutdone = false;
+            if ($recipe["mash_steps"]) {
+                foreach ($recipe["mash_steps"] as $m) {
+                    if ($mashoutdone) {
+            			$content .= $this->formatString(
+                            '<tr>
+                               <td>{name}</td>
+                               <td><span data-cmtooltip="{tt}">{temp} °C</span></td>
+                               <td>{time} Minuten</td>
+                             </tr>',
+                            [
+                                'name' => $m["name"],
+                                'temp' => number_format($m["temp"], 0, ",", "."),
+                                'time' => number_format($m["time"], 0, ",", "."),
+                                'tt' => number_format($this->cToF($m["temp"]), 0, ",", ".") . " °F"
+                            ]);
+                    }
+                    if ((strcasecmp($m["name"], "Abmaischen") == 0) || (strcasecmp($m["name"], "Mash Out") == 0)) {
+                        $mashoutdone = true;
+                    }
+                }
+            }
+
+            /*
+            foreach ($recipe["adjuncts"] as $a) {
+                if ($a["usage"] != USAGE_SPARGE) continue;
+                if (! $a["water_adj"]) continue;
+                $rendered_name = $a["name"];
+                if (strlen($a["url"]) >= 1) {
+                    $rendered_name = '<a href="' . $a["url"] . '">' . $rendered_name . '</a>';
+                }
+                $unit = $a["unit"];
+                if ($unit == "kg") {
+                    $dose = number_format($a["amount"] / $recipe["planned_batch_volume"] * 1000, 0, ",", ".") . " " . "g" . "/l";
+                } else {
+                    $dose = number_format($a["amount"] / $recipe["planned_batch_volume"], 2, ",", ".") . " " . $unit . "/l";
+                }
+    			$content .= $this->formatString(
+                    '<tr>
+                       <td>{rendered_name}</td>
+                       <td>{dose}</td>
+                       <td style="text-align:right"><span data-cmtooltip="{tt_amount}">{amount} {unit}</span></td>
+                     </tr>',
+                    [
+                        'rendered_name' => $rendered_name,
+                        'dose' => $dose,
+                        'amount' => number_format($a["amount"], ($unit == "g" ? 1 : 2), ",", "."),
+                        'unit' => $unit,
+                        'tt_amount' => (($unit == "g") || ($unit == "ml")) ? number_format($this->gToOz($a["amount"]), 2, ",", ".") . " oz" : ""
+                    ]);
+            }
+            */
+            
             if ($recipe["boil_time"] > 0) {
         		$content .= $this->formatString(
                     '<tr>
@@ -1611,6 +1729,7 @@ class WP_Brewing {
                     array_push($rows, ["line" => $line, "usage" => $h["usage"], "time" => $h["time"]]);
         		}
                 foreach ($recipe["adjuncts"] as $a) {
+                    if ($a["water_adj"]) continue;
                     if (($a["usage"] < USAGE_FIRSTWORT) || ($a["usage"] > USAGE_WHIRLPOOL)) continue;
                     $rendered_name = $a["name"];
                     if (strlen($a["url"]) >= 1) {
@@ -1763,10 +1882,12 @@ class WP_Brewing {
                 if ((!$days) && ($recipe["fermentation_steps"][0]["planned_days"])) {
                     $state = $recipe["fermentation_steps"][0]["planned_days"] . " Tage";
                 }
-                if (($recipe["status"] >= STATUS_FERMENTATION) && ($recipe["status"] < STATUS_FERMENTATION_SECONDARY)) {
-                    $d = date_diff(date_create($Sud["Anstelldatum"]), date_create());
+                if ((($recipe["status"] >= STATUS_FERMENTATION) && ($recipe["status"] < STATUS_FERMENTATION_SECONDARY)) && ($recipe["ferm_start_date"])) {
+                    $d = date_diff(date_create($recipe["ferm_start_date"]), date_create());
                     $days = $d->format("%a");
                     $state = "bisher " . $days . " Tage";
+                } else {
+                    $state = "";
                 }
                 $content .= $this->formatString(
                     '<tr>
@@ -1932,6 +2053,30 @@ class WP_Brewing {
                     ]);
             }
 
+            // YYY
+            global $query;
+            $original_query = $query;
+            $query = null;
+            $query = new WP_Query( array(
+                'post_status' => 'any',
+                'post_type' => 'attachment',
+                'post_mime_type' => 'image/svg+xml',
+                'title' => $recipe["name"] ) );
+
+            foreach ( $query->posts as $image ) {
+                $url = wp_get_attachment_url( $image->ID );
+                $content .= $this->formatString('
+                <tr>
+                   <td colspan="3"><img src="{url}" data-cmtooltip="Die hier im Diagram gezeigten Restextraktwerte sind aufgrund schlechter Kalibrierung der iSpindel und vor allem durch den Einfluss von Kräusen und CO2 auf die iSpindel nicht als verlässliche Absolutwerte anzusehen. Sprüge der Kurve können zudem beispielsweise mit Dry-Hop-Gaben zusammenhängen. Der Trend und eine zum Stillstand gekommene Gärung lassen sich jedoch recht gut erkennen. In der Regel lese ich erst bei der Abfüllung mit einer Spindel wieder einen verlässlicheren Wert ab, der dann auch hier in den Daten zu finden ist."/></td>
+                 </tr>',
+                                                [
+                                                    'url' => $url
+                                                ]);
+            }
+            $query = null;
+            $query = $original_query;
+            wp_reset_postdata();
+            
             $date = $this->renderDate($recipe["bottle_date"]);
             $content .= $this->formatString(
                 '<tr>
@@ -2051,532 +2196,12 @@ class WP_Brewing {
 
 
     
-    function extractText($text, $tag, $default) {
-        $value = $default;
-        if (strpos($text, '[[' . $tag) !== false) {
-            $value = preg_replace('/^.*\[\[' . $tag . ' *:([^\]]*)\]\].*$/s', '$1', $text);
-            $value = preg_replace('/\+/s', '<br/>', $value);
-        }
-        // $value = htmlentities($value);
-        $value = trim($value);
-        return $value;
-    }
-
-
-
-    function recipe_shortcode($atts) {
-
-    	$a = shortcode_atts (array(
-    		'source' => null
-        ), $atts);
-    	$source = $a['source'];
-        $content = null;
-        
-        if ((!$content) && (($source == "kbh") || (!$source))) {
-            $content = $this->kbh_recipe_shortcode($atts);
-        }
-        if ((!$content) && (($source == "bf") || (!$source))) {
-            $content = $this->bf_recipe_shortcode($atts);
-        }
-        if ((!$content) && (($source == "bs") || (!$source))) {
-            $content = $this->bs_recipe_shortcode($atts);
-        }
-        
-        return $content;
-    }
-
-
-
-    function kbh_recipe_shortcode($atts) {
-
-    	$a = shortcode_atts (array(
-    		'number' => null,
-    		'title' => null,
-    		'select' => null
-        ), $atts);
-    	$select = $a['select'];
-    	if ($a['number']) {
-    		$select = "Sudnummer = " . $a['number'] ;
-        } elseif ($a['title']) {
-    		$select = "Sudname LIKE '" . $a['title'] . "'";
-    	}
-
-        $location = $this->getKbhLocation();
-
-    	$db = new SQLite3($location);
-
-    	$query = "SELECT * FROM Ausruestung";
-    	$dbausr = $db->query($query);
-        $ausruestung = null;
-    	while ($Ausruestung = $dbausr->fetchArray()) {
-            $estimated_sudhausausbeute = $Ausruestung["Sudhausausbeute"];
-            $ausruestung = $Ausruestung["Name"];
-        }
-        $query = "SELECT * FROM Sud WHERE " . $select;
-        $dbsude = $db->query($query);
-    	while ($Sud = $dbsude->fetchArray()) {
-    		$sudid = $Sud["ID"];
-    		$query = "SELECT * FROM Hauptgaerverlauf WHERE SudID = " . $sudid . " ORDER BY Zeitstempel";
-    		$dbgaerverlauf = $db->query($query);
-    		$restextrakt = null;
-            if ($Sud["SWAnstellen"] > 0) {
-                $restextrakt = $Sud["SWAnstellen"];
-            }
-            $i = 0; $primary_end = ""; $temp_sum = 0;
-    		while ($entry = $dbgaerverlauf->fetchArray()) {
-                if ($entry["Zeitstempel"] > $primary_end) {
-                    $primary_end = $entry["Zeitstempel"];
-                }
-                if ((($entry["SW"] < $restextrakt) || (! $restextrakt)) && ($entry["SW"] > 0)) {
-                    $restextrakt = $entry["SW"];
-                }
-                if ($entry["Temp"] > 0) {
-                    $temp_sum += $entry["Temp"];
-                    $i += 1;
-                }
-    		}
-            if ($i > 0) {
-                $primary_temp = $temp_sum / $i;
-            } else {
-                $primary_temp = null;
-            }
-            if ($Sud["BierWurdeAbgefuellt"]) {
-                $d = date_diff(date_create($Sud["Anstelldatum"]), date_create($Sud["Abfuelldatum"]));
-                $primary_days = $d->format("%a");
-            } elseif ($primary_end) {
-                $d = date_diff(date_create($Sud["Anstelldatum"]), date_create($primary_end));
-                $primary_days = $d->format("%a");
-            } else {
-                $primary_days = null;
-            }
-            $query = "SELECT * FROM Nachgaerverlauf WHERE SudID = " . $sudid . " ORDER BY Zeitstempel";
-    		$dbnachgaerverlauf = $db->query($query);
-    		$co2 = null;
-            $i = 0; $secondary_end = null; $temp_sum = 0;
-    		while ($entry = $dbnachgaerverlauf->fetchArray()) {
-                if ($entry["Zeitstempel"] > $secondary_end) {
-                    $secondary_end = $entry["Zeitstempel"];
-                }
-                if (($entry["CO2"] > $co2) && ($entry["Druck"] > 0)) {
-                    $co2 = $entry["CO2"];
-                }
-                if ($entry["Temp"] > 0) {
-                    $temp_sum += $entry["Temp"];
-                    $i += 1;
-                }
-    		}
-            if ($i > 0) {
-                $secondary_temp = $temp_sum / $i;
-            } else {
-                $secondary_temp = null;
-            }
-    		$query = "SELECT * FROM Malzschuettung WHERE SudID = " . $sudid . " ORDER BY Prozent DESC";
-    		$dbschuettung = $db->query($query);
-    		$query = "SELECT * FROM WeitereZutatengaben WHERE SudID = " . $sudid . " AND Zeitpunkt = 2 ORDER BY erg_Menge DESC";
-    		$dbweiteremaischgaben = $db->query($query);
-    		$query = "SELECT * FROM Rasten WHERE SudID = " . $sudid;
-    		$dbrasten = $db->query($query);
-    		$query = "SELECT * FROM Hopfengaben WHERE SudID = " . $sudid . " AND Vorderwuerze = 1 ORDER BY erg_Menge DESC";
-    		$dbvwh = $db->query($query);
-    		$query = "SELECT * FROM Hopfengaben WHERE SudID = " . $sudid . " AND Vorderwuerze = 0 ORDER BY Zeit DESC";
-    		$dbhopfen = $db->query($query);
-    		$query = "SELECT * FROM WeitereZutatengaben WHERE SudID = " . $sudid . " AND Zeitpunkt = 1 ORDER BY erg_Menge DESC";
-    		$dbweiterekochgaben = $db->query($query);
-    		$query = "SELECT * FROM WeitereZutatengaben WHERE SudID = " . $sudid . " AND Zeitpunkt = 0 ORDER BY erg_Menge DESC";
-    		$dbgaergaben = $db->query($query);
-
-
-            $query = "SELECT * FROM WeitereZutatenGaben WHERE SudID = " . $sudid . " AND Typ != 100 AND Ausbeute > 0 ORDER BY erg_Menge DESC";
-            $dbotherferms = $db->query($query);
-            $query = "SELECT * FROM WeitereZutatenGaben WHERE SudID = " . $sudid . " AND ( Typ = 100 OR Typ = -1 ) AND Zeitpunkt = 0 ORDER BY erg_Menge DESC";
-    		$dbdryhop = $db->query($query);
-            
-            // $query = "SELECT * FROM WeitereZutatenGaben WHERE SudID = " . $sudid . " AND Typ != 100 AND Typ != -1 AND Ausbeute <= 0 ORDER BY erg_Menge DESC";
-            $query = "SELECT * FROM WeitereZutatenGaben WHERE SudID = " . $sudid . " ORDER BY erg_Menge DESC";
-    		$dbadjuncts = $db->query($query);
-            
-            $d = date_diff(date_create($Sud["Anstelldatum"]), date_create());
-    		$GaertageBisher = $d->format("%a");
-    		$d = date_diff(date_create($Sud["Abfuelldatum"]), date_create());
-    		$NachgaertageBisher = $d->format("%a");
-            /* aus https://brauerei.mueggelland.de/vergaerungsgrad.html */
-    		$og = $Sud["SWAnstellen"];
-    		$wfg = 0.1808 * $og + 0.1892 * $restextrakt;
-    		$d = 261.1 / (261.53 - $restextrakt);
-    		$abw = ($og - $wfg) / (2.0665 - 0.010665 * $og);
-    		$kcal = round((6.9 * $abw + 4 * ( $wfg - 0.1 )) * 10 * 0.1 * $d);
-
-            $today = date("o-m-d");
-            $recipe = [
-                "name" => $Sud["Sudname"],
-                "source" => "Kleiner Brauhelfer",
-                "equipment" => $ausruestung,
-                "brewer" => $this->extractText($Sud["Kommentar"], "Brauer", null),
-                "assistant" => $this->extractText($Sud["Kommentar"], "Assistent", null),
-                "bjcp2015_style_id" => $this->extractText($Sud["Kommentar"], "BJCP-Style", null),
-                "type" => RECIPE_TYPE_ALLGRAIN,
-                "description" => strlen($Sud["Kommentar"]) > 0 ? explode(PHP_EOL, $Sud['Kommentar'])[0] : null,
-                "notes" => null, // TBD
-                "created_at" => $Sud["Erstellt"],
-                "updated_at" => $Sud["Gespeichert"],
-                "brew_date" => $Sud["Braudatum"] ? $this->localToUtc($Sud["Braudatum"]) : null,
-                "bottle_date" => $Sud["BierWurdeAbgefuellt"] ? $this->localToUtc($Sud["Abfuelldatum"]) : null,
-                "emptied_date" => null,
-                "planned_batch_volume" => $Sud["Menge"], // l, into fermenter at 20 °C
-                "bottled_volume" => $Sud["BierWurdeAbgefuellt"] ? $Sud["erg_AbgefuellteBiermenge"] : null, // bottled or keged
-                "planned_og" => $this->platoToSg($Sud["SW"]),
-                "og" => $Sud["BierWurdeGebraut"] ? $this->platoToSg($Sud["SWAnstellen"]) : null,
-                "estimated_fg" => null, // TBD
-                "fg" => (($restextrakt > 0) && ($Sud["BierWurdeAbgefuellt"])) ? $this->platoToSg($restextrakt) : null,
-                "current_g" => (($restextrakt > 0) && ($Sud["BierWurdeGebraut"]) && (! $Sud["BierWurdeAbgefuellt"])) ? $this->platoToSg($restextrakt) : null, // TBD
-                "abv" => $Sud["BierWurdeAbgefuellt"] ? $Sud["erg_Alkohol"] : null, // %vol
-                "ibu" => $Sud["IBU"], // IBU
-                "ebc" => $Sud["erg_Farbe"], // EBC
-                "calories" => $kcal > 0 ? $kcal : null, // kcal/100ml
-                //"Planned_co2" => str_replace(",", ".", preg_replace("~[^0-9.,]~i", "", $this->extractText($Sud["Kommentar"], "CO2", null))), // g/l
-                "planned_co2" => str_replace(",", ".", preg_replace("~[^0-9.,]~i", "", $Sud["CO2"])), // g/l
-                "co2" => $co2 > 0 ? $co2 : null, // CO2 g/l
-                "drink_temp" => str_replace(",", ".", preg_replace("~[^0-9.,]~i", "", $this->extractText($Sud["Kommentar"], "Trinktemperatur", null))), // °C
-                "song" => $this->extractText($Sud["Kommentar"], "Song", null), // "Song zum Bier" :-) (free text)
-                "song_url" => $this->extractText($Sud["Kommentar"], "Song-URL", null),
-                "stock" => $this->extractText($Sud["Kommentar"], "Restbestand", null), // "Restbestand" (free text)
-                "containers" => $this->extractText($Sud["Kommentar"], "Gebinde", null), // "Gebinde" (free text)
-                "pack_color" => $this->extractText($Sud["Kommentar"], "Kronkorkenfarbe", null), // "Kronkorkenfarbe" (free text)
-                "age_days" => $Sud["Reifezeit"] * 7,
-                //"fermentables_total" => $Sud["erg_S_Gesammt"], // kg -- should be calculated
-                "planned_residual_alkalinity" => $this->dhToPpm($Sud["RestalkalitaetSoll"]), // ppm
-                "mash_in_temp" => $Sud["EinmaischenTemp"], // °C
-                "mash_water_volume" => $Sud["erg_WHauptguss"], // l
-                "mash_ph" => str_replace(",", ".", preg_replace("~[^0-9.,]~i", "", $this->extractText($Sud["Kommentar"], "Maische-pH", null))),
-                "sparge_water_volume" => $Sud["erg_WNachguss"], // l
-                "boil_time" => $Sud["KochdauerNachBitterhopfung"], // min
-                "estimated_sudhausausbeute" => $estimated_sudhausausbeute > 0 ? $estimated_sudhausausbeute : null, // %
-                "sudhausausbeute" => $Sud["BierWurdeGebraut"] ? $Sud["erg_Sudhausausbeute"] : null, // %
-                "post_boil_hot_time" => $Sud["Nachisomerisierungszeit"],
-                //"post_boil_hot_volume" => $Sud["WuerzemengeKochende"], // l at 99 °C TBD: KBH value is at which temp? estimated or actual?  -- calculated?
-                "post_boil_roomtemp_volume" => $Sud["BierWurdeGebraut"] ? $Sud["WuerzemengeVorHopfenseihen"] : null, // l, theoretically at 20 °C
-                "batch_volume" => $Sud["BierWurdeGebraut"] ? $Sud["WuerzemengeAnstellen"] : null,
-                "fermentables" => [],
-                "mash_steps" => [],
-                "hops" => [],
-                "adjuncts" => [],
-                "yeasts" => [],
-                "fermentation_steps" => [],
-                "status" => ($Sud["BierWurdeGebraut"]) ? (($Sud["BierWurdeVerbraucht"]) ? STATUS_EMPTIED : (($Sud["BierWurdeAbgefuellt"]) ? (       (date_add(new DateTime($this->renderDate($this->localToUtc($Sud["Abfuelldatum"]))), new DateInterval('P' . 7 * $Sud["Reifezeit"] . 'D'))->format("Y-m-d") < date("o-m-d"))       ? STATUS_COMPLETE : STATUS_CONDITIONING) : STATUS_FERMENTATION)) : ($this->localToUtc($Sud["Braudatum"] == date("o-m-d") ? STATUS_BREWDAY : STATUS_PREPARING))
-                // "estimated_attenuation"  // should be calculated (or just copied from yeast?)
-                // "attenuation"  // should be calculated from og and fg
-            ];
-
-            // fermentables
-    		while ($malz = $dbschuettung->fetchArray()) {
-                $name = $malz["Name"];
-                $query = 'SELECT * FROM Malz WHERE Beschreibung = "' . $name . '"';
-                $result = $db->query($query);
-                $url = null;
-                if ($result) {
-                    while ($row = $result->fetchArray()) {
-                        if (strlen($row["Link"]) >= 1) {
-                            $url = $row["Link"];
-                        }
-                    }
-                }
-                array_push($recipe["fermentables"], [
-                    "name" => $name,
-                    "usage" => USAGE_MASH,
-                    "url" => $url,
-                    "amount" => $malz["erg_Menge"] // kg
-                    // percentage to be calculated
-                ]);
-            }
-            
-            // mash_steps
-    		while ($rast = $dbrasten->fetchArray()) {
-                array_push($recipe["mash_steps"], [
-                    "name" => $rast["RastName"],
-                    "temp" => $rast["RastTemp"], // °C
-                    "time" => $rast["RastDauer"] // minutes
-                ]);
-            }
-            
-            // hops
-    		while ($hopfen = $dbvwh->fetchArray()) {
-                $name = $hopfen["Name"];
-                $query = 'SELECT * FROM Hopfen WHERE Beschreibung = "' . $name . '"';
-                $result = $db->query($query);
-                $url = null;
-                if ($result) {
-                    while ($row = $result->fetchArray()) {
-                        if (strlen($row["Link"]) >= 1) {
-                            $url = $row["Link"];
-                        }
-                    }
-                }
-                array_push($recipe["hops"], [
-                    "name" => $hopfen["Name"],
-                    "url" => $url,
-                    "type" => $hopfen["Pellets"] == 1 ? HOP_PELLET : HOP_LEAF,
-                    "usage" => USAGE_FIRSTWORT,
-                    "alpha" => $hopfen["Alpha"] > 0 ? $hopfen["Alpha"] : null,
-                    "time" => null,
-                    "amount" => $hopfen["erg_Menge"] // g
-                ]);
-            }
-    		while ($hopfen = $dbhopfen->fetchArray()) {
-                $name = $hopfen["Name"];
-                $query = 'SELECT * FROM Hopfen WHERE Beschreibung = "' . $name . '"';
-                $result = $db->query($query);
-                $url = null;
-                if ($result) {
-                    while ($row = $result->fetchArray()) {
-                        if (strlen($row["Link"]) >= 1) {
-                            $url = $row["Link"];
-                        }
-                    }
-                }
-                if ($hopfen["Zeit"] == 0) {
-                    $usage = USAGE_FLAMEOUT;
-                } elseif ($hopfen["Zeit"] < 0) {
-                    $usage = USAGE_WHIRLPOOL;
-                } else {
-                    $usage = USAGE_BOIL;
-                }
-                array_push($recipe["hops"], [
-                    "name" => $hopfen["Name"],
-                    "url" => $url,
-                    "type" => $hopfen["Pellets"] == 1 ? HOP_PELLET : HOP_LEAF,
-                    "usage" => $usage,
-                    "alpha" => $hopfen["Alpha"] > 0 ? $hopfen["Alpha"] : null,
-                    "time" => $hopfen["Zeit"],
-                    "amount" => $hopfen["erg_Menge"] // g
-                ]);
-    		}
-            // dry hop
-    		while ($hopfen = $dbdryhop->fetchArray()) {
-                $name = $hopfen["Name"];
-                $query = 'SELECT * FROM Hopfen WHERE Beschreibung = "' . $name . '"';
-                $result = $db->query($query);
-                $url = null;
-                $type = null;
-                $alpha = null;
-                if ($result) {
-                    while ($row = $result->fetchArray()) {
-                        if (strlen($row["Link"]) >= 1) {
-                            $url = $row["Link"];
-                            $type = $row["Pellets"] == 1 ? HOP_PELLET : HOP_LEAF;
-                            $alpha = $row["Alpha"];
-                        }
-                    }
-                }
-                $time = $hopfen["Zugabedauer"];
-                if ($time >= 1440) {
-                    $time = $time / 1440;
-                } elseif ($time == 0) {
-                    $time = null;
-                }
-                array_push($recipe["hops"], [
-                    "name" => $name,
-                    "url" => $url,
-                    "type" => $type,
-                    "usage" => USAGE_PRIMARY,
-                    "alpha" => null,
-                    "time" => $time,
-                    "amount" => $hopfen["erg_Menge"] // g
-                ]);
-    		}
-
-            // adjuncts
-    		while ($adjunct = $dbadjuncts->fetchArray()) {
-                $name = $adjunct["Name"];
-                $query = 'SELECT * FROM WeitereZutaten WHERE Beschreibung = "' . $name . '"';
-                $result = $db->query($query);
-                $url = null;
-                $type = null;
-                $time = $adjunct["Zugabedauer"];
-                if ($time >= 1440) {
-                    $time = $time / 1440;
-                } elseif ($time == 0) {
-                    $time = null;
-                }
-                if ($adjunct["Zeitpunkt"] == 2) {
-                    $usage = USAGE_MASH;
-                } elseif ($adjunct["Zeitpunkt"] == 1) {
-                    if ($adjunct["Zugabedauer"] == 0) {
-                        $usage = USAGE_FLAMEOUT;
-                    } elseif ($adjunct["Zugabedauer"] < 0) {
-                        $usage = USAGE_WHIRLPOOL;
-                    } else {
-                        $usage = USAGE_BOIL;
-                    }
-                } elseif ($adjunct["Zeitpunkt"] == 0) {
-                    $usage = USAGE_PRIMARY;
-                }
-                $unit = "g";
-                $unit_factor = 1;
-                if ($result) {
-                    while ($row = $result->fetchArray()) {
-                        if (strlen($row["Link"]) >= 1) {
-                            $url = $row["Link"];
-                        }
-                        if ($row["Einheiten"] != 1) {
-                            $unit = "kg";
-                            $unit_factor = 0.001;
-                        }
-                    }
-                }
-                // these seem to hops, already stored to $recipe["hops"]
-                if (($adjunct["Typ"] == -1) or ($adjunct["Typ"] == 100)) {
-                    ;
-                } else {
-                    // TBD: $type = ...
-                    array_push($recipe["adjuncts"], [
-                        "name" => $name,
-                        "url" => $url,
-                        "type" => $type,
-                        "usage" => $usage,
-                        "time" => $time,
-                        "amount" => $adjunct["erg_Menge"] * $unit_factor,
-                        "unit" => $unit
-                    ]);
-                }
-            }
-            usort($recipe["adjuncts"], 'adjuncts_cmp');
-
-            // yeast
-            $name = $Sud["AuswahlHefe"];
-            $url = null;
-            $type = null;
-            $form = null;
-            $flocculation = null;
-            $attenuation = null;
-            $temp_min = null;
-            $temp_max = null;
-            $query = 'SELECT * FROM Hefe WHERE Beschreibung = "' . $name . '"';
-            $result = $db->query($query);
-            if ($result) {
-                while ($row = $result->fetchArray()) {
-                    $url = (strlen($row["Link"]) >= 1) ? $row["Link"] : null;
-                    $type = ($row["TypOGUG"] == 1) ? YEAST_ALE : YEAST_LAGER;
-                    $form = ($row["TypTrFl"] == 1) ? YEAST_FORM_DRY : YEAST_FORM_LIQUID;
-                    if ($row["SED"] == 1) {
-                        $flocculation = FLOC_HIGH;
-                    } elseif ($row["SED"] == 2) {
-                        $flocculation = FLOC_MEDIUM;
-                    } elseif ($row["SED"] == 3) {
-                        $flocculation = FLOC_LOW;
-                    }
-                    $attenuation = ($row["EVG"] > 0) ? $row["EVG"] : null; // %
-                    if ($row["Temperatur"]) {
-                        $matches = array();
-                        preg_match('/^[^0-9]*([0-9]+)[^0-9]+([0-9]*).*$/', $row["Temperatur"], $matches);
-                        if (count($matches) >= 1) {
-                            $temp_min = $matches[1];
-                            if ((count($matches) >= 2) and (strlen($matches[2]) > 0)) {
-                                $temp_max = $matches[2];
-                            } else {
-                                $temp_max = $temp_min;
-                            }
-                        }
-                    }
-                }
-            }
-            array_push($recipe["yeasts"], [
-                "name" => $name,
-                "url" => $url,
-                "type" => $type,
-                "form" => $form,
-                "attenuation" => $attenuation,
-                "flocculation" => $flocculation,
-                "temp_min" => $temp_min,
-                "temp_max" => $temp_max,
-                "unit" => "packets",
-                "amount" => $Sud["HefeAnzahlEinheiten"]
-            ]);
-            
-            // fermentation
-            array_push($recipe["fermentation_steps"], [
-                "name" => "Hauptgärung",
-                "planned_days" => null,
-                "planned_temp" => null,
-                "days" => $primary_days,
-                "temp" => $primary_temp // °C
-            ]);
-            if ($secondary_temp > 0) {
-                array_push($recipe["fermentation_steps"], [
-                    "name" => "Nachgärung",
-                    "planned_days" => null,
-                    "planned_temp" => null,
-                    "days" => $secondary_days,
-                    "temp" => $secondary_temp // °C
-                ]);
-            }
-            // explicit fermentation info
-            $ferms = $this->extractText($Sud["Kommentar"], "Fermentation", null);
-            $ferms = explode(",", $ferms);
-            $i = 0;
-            foreach ($ferms as $ferm) {
-                $name = null; $days = null; $temp = null;
-                $a = explode("@", $ferm);
-                $temp = $a[1];
-                $a = explode(":", $a[0]);
-                if (count($a) == 1) {
-                    $days = $a[0];
-                } else {
-                    $name = $a[0];
-                    $days = $a[1];
-                }
-                if ($name) {
-                    $recipe["fermentation_steps"][$i]["name"] = $name;
-                }
-                if ($days > 0) {
-                    $recipe["fermentation_steps"][$i]["planned_days"] = $days;
-                }
-                if ($temp > 0) {
-                    $recipe["fermentation_steps"][$i]["planned_temp"] = $temp;
-                }
-                $i += 1;
-            }
-        }
-        
-    	$db->close();
-
-        $content = $this->renderRecipe($recipe);
-        
-    	return $content;
-    }
-
-
-    
-    function recipes_shortcode($atts) {
-
-        $att = shortcode_atts (array(
-            'mode' => null,
-            'year' => null,
-    		'source' => null,
-    		'type' => null,
-    		'tag' => null,
-    		'title' => null
-        ), $atts);
-
-        return $this->recipe_table($att["mode"], $att["year"], $att["source"], $att["type"], $att["tag"], $att["title"]);
-    }
-
-
-
-    function kbh_recipes_shortcode($atts) {
-
-        $att = shortcode_atts (array(
-            'mode' => null,
-            'year' => null
-        ), $atts);
-
-        return $this->recipe_table($att["mode"], $att["year"], "kbh", null, null, null);
-    }
-
-
-
-    function recipe_table($mode, $year, $source, $type, $tag, $title) {
+    function renderRecipeTable($mode, $year, $source, $type, $tag, $title) {
         
         $content = "";
+        global $query;
+        $original_query = $query;
+        $query = null;
 
         $category = get_option('wp_brewing_category', 'Sude');
 
@@ -2591,6 +2216,9 @@ class WP_Brewing {
             $post = [ "title" => get_the_title(), "url" => get_post_permalink() ];
             array_push($posts, $post);
         }
+        $query = null;
+        $query = $original_query;
+        wp_reset_postdata();
         if ($mode != "xml") {
             $content .= '
     <table class="wp-brewing-recipes">
@@ -2707,7 +2335,7 @@ class WP_Brewing {
                 $mengehl = floor($m) / 100;
                 $betrag = floor($mengehl * $litersatz * 100) / 100;
 
-                $status = ($Sud["BierWurdeGebraut"]) ? (($Sud["BierWurdeVerbraucht"]) ? STATUS_EMPTIED : (($Sud["BierWurdeAbgefuellt"]) ? (       (date_add(new DateTime($this->renderDate($this->localToUtc($Sud["Abfuelldatum"]))), new DateInterval('P' . 7 * $Sud["Reifezeit"] . 'D'))->format("Y-m-d") < date("o-m-d"))       ? STATUS_COMPLETE : STATUS_CONDITIONING) : STATUS_FERMENTATION)) : ($this->localToUtc($Sud["Braudatum"] == date("o-m-d") ? STATUS_BREWDAY : STATUS_PREPARING));
+                $status = ($Sud["BierWurdeGebraut"]) ? (($Sud["BierWurdeVerbraucht"]) ? STATUS_EMPTIED : (($Sud["BierWurdeAbgefuellt"]) ? (       (date_add(new DateTime($this->renderDate($this->localToUtc($Sud["Abfuelldatum"]))), new DateInterval('P' . 7 * $Sud["Reifezeit"] . 'D'))->format("Y-m-d") < date("o-m-d")) ? STATUS_COMPLETE : STATUS_CONDITIONING) : STATUS_FERMENTATION)) : ($this->localToUtc($Sud["Braudatum"] == date("o-m-d") ? STATUS_BREWDAY : STATUS_PREPARING));
                 $status = $this->statusWord($status);
                 
                 array_push($lines, [
@@ -2725,6 +2353,74 @@ class WP_Brewing {
         }
 
         if (($source == "bf") || (!$source)) {
+            // from single Brewfather exported JOSN batches posted to WordPress...
+            if (($type == "batch") || (!$type)) {
+                global $query;
+                $original_query = $query;
+                $query = null;
+                $query = new WP_Query( array(
+                    'post_status' => 'any',
+                    'post_type' => 'attachment',
+                    'post_mime_type' => 'application/json',
+                    'posts_per_page' => 1000 ) );
+                while ( $query->have_posts() ) {
+                    $query->the_post();
+                    $file_title = get_the_title();
+                    if ((!$title) || (fnmatch($title, $file_title))) {
+                        // TBD: other filtering attributes year, tags, ...?
+                        $href = null; $maxl = 0;
+                        foreach ($posts as $post) {
+                            for ($l = 1; $l < strlen($file_title); $l++) {
+                                $sub = substr($file_title, 0, $l);
+                                if (strpos($post["title"], $sub) !== false) {
+                                    if ($l > $maxl) {
+                                        $maxl = $l;
+                                        $href = $post["url"];
+                                    }
+                                }
+                            }
+                        }
+                        
+                        # PROCESS $batch
+                        $path = get_attached_file(get_the_ID(), true);
+                        $json = file_get_contents($path);
+                        $batch = json_decode($json, true);
+                        $recipe = $this->get_recipe_from_bf($batch, $batch["recipe"]);
+                        $recipe["wp_href"] = $href;
+                        $m = $recipe["batchSize"];
+                        if ($batch["measuredBottlingSize"] > 0) {
+                            $m = $batch["measuredBottlingSize"];
+                        }
+                        $steuersatz = 0.4407;
+                        $steuerklasse = floor($this->sgToPlato($batch["measuredOg"]));
+                        $litersatz = floor($steuersatz * $steuerklasse * 100) / 100;
+                        $mengehl = floor($m) / 100;
+                        $betrag = floor($mengehl * $litersatz * 100) / 100;
+                        $status = $batch ? (($batch["status"] == "Planning") ? STATUS_PREPAIRING : (($batch["status"] == "Archived") ? STATUS_EMPTIED : (($batch["status"] == "Completed") ? STATUS_COMPLETE : (($batch["status"] == "Fermenting") ? STATUS_FERMENTATION : (($batch["status"] == "Conditioning") ? STATUS_CONDITIONING : STATUS_BREWDAY))))) : STATUS_RECIPE;
+                        $status = $this->statusWord($status);
+                        $date = substr($this->secsToDate($batch["brewDate"] / 1000), 0, 10);
+                        array_push($lines, [
+                            'name' => $batch["name"],
+                            'href' => $href,
+                            'status' => $status,
+                            'date' => $date,
+                            'steuerklasse' => $steuerklasse,
+                            'steuersatz' => $steuersatz,
+                            'steuerbetrag' => $litersatz,
+                            'versteuerung' => $mengehl,
+                            'betrag' => $betrag
+                        ]);
+
+                    }
+                }
+                $query = null;
+                $query = $original_query;
+                wp_reset_postdata();
+            }
+            
+        }
+/*        
+        if (($source == "bfdump") || (!$source)) {
         
             $location = $this->getBfLocation();
             $json = file_get_contents($location);
@@ -2752,7 +2448,8 @@ class WP_Brewing {
                                         }
                                     }
                                 }
-                                $status = (($batch["status"] == "Planning") ? STATUS_PREPAIRING : (($batch["status"] == "Archived") ? STATUS_EMPTIED : (($batch["status"] == "Completed") ? STATUS_COMPLETE : (($batch["status"] == "Fermenting") ? STATUS_FERMENTATION : STATUS_BREWDAY))));
+                                $status = $batch ? (($batch["status"] == "Planning") ? STATUS_PREPAIRING : (($batch["status"] == "Archived") ? STATUS_EMPTIED : (($batch["status"] == "Completed") ? STATUS_COMPLETE : (($batch["status"] == "Fermenting") ? STATUS_FERMENTATION : (($batch["status"] == "Conditioning") ? STATUS_CONDITIONING : STATUS_BREWDAY))))) : STATUS_RECIPE;
+                                #$status = (($batch["status"] == "Planning") ? STATUS_PREPAIRING : (($batch["status"] == "Archived") ? STATUS_EMPTIED : (($batch["status"] == "Completed") ? STATUS_COMPLETE : (($batch["status"] == "Fermenting") ? STATUS_FERMENTATION : STATUS_BREWDAY))));
                                 $status = $this->statusWord($status);
                                 array_push($lines, [
                                     'name' => $batch["name"],
@@ -2776,6 +2473,7 @@ class WP_Brewing {
                 }
             }
         }
+*/
             
         usort($lines, 'recipe_lines_cmp');
         $gesamt = 0;
@@ -2892,50 +2590,642 @@ class WP_Brewing {
 
 
 
-    function kbh_send_2075($year) {
-
-        $filename = "Formular-2075-" . $year;
-
-        header("Expires: 0");
-        header("Cache-Control: no-cache, no-store, must-revalidate");
-        header("Pragma: no-cache");	
-        header("Content-type: application/xml");
-        header("Content-Disposition:attachment; filename={$filename}");
-
-        echo $this->recipe_table("xml", $year, "kbh", null, null, null);
-
-        exit();
+    function extractText($text, $tag, $default) {
+        $value = $default;
+        if (strpos($text, '[[' . $tag) !== false) {
+            $value = preg_replace('/^.*\[\[' . $tag . ' *:([^\]]*)\]\].*$/s', '$1', $text);
+            $value = preg_replace('/\+/s', '<br/>', $value);
+        }
+        // $value = htmlentities($value);
+        $value = trim($value);
+        return $value;
     }
-    
 
-    
-    function bf_recipe_shortcode($atts) {
 
-    	$a = shortcode_atts (array(
-    		'number' => null,
-    		'title' => null,
-    		'select' => null
-        ), $atts);
-        $location = $this->getBfLocation();
-        $json = file_get_contents($location);
-        $all = json_decode($json, true);
-        $bf_batch = null;
-        $bf_recipe = null;
-        foreach ($all["data"]["batches"] as $b) {
-            if (($a["number"] && ($b["batchNo"] == $a["number"])) ||
-                ($a["title"] && fnmatch($a["title"], $b["name"]))) {
-                $bf_batch = $b;
-                $bf_recipe = $b["recipe"];
-                break;
+
+    function get_recipes($year, $source, $type, $tag, $title) {
+        
+        $recipes = [];
+        global $query;
+        $original_query = $query;
+        $query = null;
+
+        # gather relevant WordPress posts for later $recipe[wp_href] settings
+        $category = get_option('wp_brewing_category', 'Sude');
+        $query = new WP_Query( array(
+            'posts_per_page' => 1000,
+            'category_name' => $category ) );
+        $posts = [];
+        while ( $query->have_posts() ) {
+        	$query->the_post();
+            $post = [ "title" => get_the_title(), "url" => get_post_permalink() ];
+            array_push($posts, $post);
+        }
+        $query = null;
+        $query = $original_query;
+        wp_reset_postdata();
+
+        if (($source == "kbh") || (!$source)) {
+
+            # Note: no suppport for $tag and $type with KBH
+            
+            if ($year) {
+                $where = ' WHERE strftime("%Y",Braudatum) = "' . $year . '"';
+            } else {
+                $where = "";
+            }
+            if ($title) {
+                $where .= " " . ((strlen($where) > 0) ? "AND" : "WHERE") . " Sudname LIKE '" . $title . "'";
+            }
+            
+            $location = $this->getKbhLocation();
+
+        	$db = new SQLite3($location);
+
+            $query = "SELECT * FROM Ausruestung";
+            $dbausr = $db->query($query);
+            $ausruestung = null;
+            while ($Ausruestung = $dbausr->fetchArray()) {
+                $estimated_sudhausausbeute = $Ausruestung["Sudhausausbeute"];
+                $ausruestung = $Ausruestung["Name"];
+            }
+            
+            $query = "SELECT * FROM Sud" . $where . " ORDER BY Braudatum";
+            $dbsude = $db->query($query);
+        
+            while ($Sud = $dbsude->fetchArray()) {
+
+                $name = $Sud["Sudname"];
+                
+                /* find href of best matching WP post by comparing title prefix lengths */
+                $href = null; $maxl = 0;
+                foreach ($posts as $post) {
+                    for ($l = 1; $l < strlen($name); $l++) {
+                        $sub = substr($name, 0, $l);
+                        if (strpos($post["title"], $sub) !== false) {
+                            if ($l > $maxl) {
+                                $maxl = $l;
+                                $href = $post["url"];
+                            }
+                        }
+                    }
+                }
+
+                # PROCESS $Sud
+        		$sudid = $Sud["ID"];
+        		$query = "SELECT * FROM Hauptgaerverlauf WHERE SudID = " . $sudid . " ORDER BY Zeitstempel";
+        		$dbgaerverlauf = $db->query($query);
+        		$restextrakt = null;
+                if ($Sud["SWAnstellen"] > 0) {
+                    $restextrakt = $Sud["SWAnstellen"];
+                }
+                $i = 0; $primary_end = ""; $temp_sum = 0;
+        		while ($entry = $dbgaerverlauf->fetchArray()) {
+                    if ($entry["Zeitstempel"] > $primary_end) {
+                        $primary_end = $entry["Zeitstempel"];
+                    }
+                    if ((($entry["SW"] < $restextrakt) || (! $restextrakt)) && ($entry["SW"] > 0)) {
+                        $restextrakt = $entry["SW"];
+                    }
+                    if ($entry["Temp"] > 0) {
+                        $temp_sum += $entry["Temp"];
+                        $i += 1;
+                    }
+        		}
+                if ($i > 0) {
+                    $primary_temp = $temp_sum / $i;
+                } else {
+                    $primary_temp = null;
+                }
+                if ($Sud["BierWurdeAbgefuellt"]) {
+                    $d = date_diff(date_create($Sud["Anstelldatum"]), date_create($Sud["Abfuelldatum"]));
+                    $primary_days = $d->format("%a");
+                } elseif ($primary_end) {
+                    $d = date_diff(date_create($Sud["Anstelldatum"]), date_create($primary_end));
+                    $primary_days = $d->format("%a");
+                } else {
+                    $primary_days = null;
+                }
+                $query = "SELECT * FROM Nachgaerverlauf WHERE SudID = " . $sudid . " ORDER BY Zeitstempel";
+        		$dbnachgaerverlauf = $db->query($query);
+        		$co2 = null;
+                $i = 0; $secondary_end = null; $temp_sum = 0;
+        		while ($entry = $dbnachgaerverlauf->fetchArray()) {
+                    if ($entry["Zeitstempel"] > $secondary_end) {
+                        $secondary_end = $entry["Zeitstempel"];
+                    }
+                    if (($entry["CO2"] > $co2) && ($entry["Druck"] > 0)) {
+                        $co2 = $entry["CO2"];
+                    }
+                    if ($entry["Temp"] > 0) {
+                        $temp_sum += $entry["Temp"];
+                        $i += 1;
+                    }
+        		}
+                if ($i > 0) {
+                    $secondary_temp = $temp_sum / $i;
+                } else {
+                    $secondary_temp = null;
+                }
+        		$query = "SELECT * FROM Malzschuettung WHERE SudID = " . $sudid . " ORDER BY Prozent DESC";
+        		$dbschuettung = $db->query($query);
+        		$query = "SELECT * FROM WeitereZutatengaben WHERE SudID = " . $sudid . " AND Zeitpunkt = 2 ORDER BY erg_Menge DESC";
+        		$dbweiteremaischgaben = $db->query($query);
+        		$query = "SELECT * FROM Rasten WHERE SudID = " . $sudid;
+        		$dbrasten = $db->query($query);
+        		$query = "SELECT * FROM Hopfengaben WHERE SudID = " . $sudid . " AND Vorderwuerze = 1 ORDER BY erg_Menge DESC";
+        		$dbvwh = $db->query($query);
+        		$query = "SELECT * FROM Hopfengaben WHERE SudID = " . $sudid . " AND Vorderwuerze = 0 ORDER BY Zeit DESC";
+        		$dbhopfen = $db->query($query);
+        		$query = "SELECT * FROM WeitereZutatengaben WHERE SudID = " . $sudid . " AND Zeitpunkt = 1 ORDER BY erg_Menge DESC";
+        		$dbweiterekochgaben = $db->query($query);
+        		$query = "SELECT * FROM WeitereZutatengaben WHERE SudID = " . $sudid . " AND Zeitpunkt = 0 ORDER BY erg_Menge DESC";
+        		$dbgaergaben = $db->query($query);
+
+
+                $query = "SELECT * FROM WeitereZutatenGaben WHERE SudID = " . $sudid . " AND Typ != 100 AND Ausbeute > 0 ORDER BY erg_Menge DESC";
+                $dbotherferms = $db->query($query);
+                $query = "SELECT * FROM WeitereZutatenGaben WHERE SudID = " . $sudid . " AND ( Typ = 100 OR Typ = -1 ) AND Zeitpunkt = 0 ORDER BY erg_Menge DESC";
+        		$dbdryhop = $db->query($query);
+                
+                // $query = "SELECT * FROM WeitereZutatenGaben WHERE SudID = " . $sudid . " AND Typ != 100 AND Typ != -1 AND Ausbeute <= 0 ORDER BY erg_Menge DESC";
+                $query = "SELECT * FROM WeitereZutatenGaben WHERE SudID = " . $sudid . " ORDER BY erg_Menge DESC";
+        		$dbadjuncts = $db->query($query);
+                
+                $d = date_diff(date_create($Sud["Anstelldatum"]), date_create());
+        		$GaertageBisher = $d->format("%a");
+        		$d = date_diff(date_create($Sud["Abfuelldatum"]), date_create());
+        		$NachgaertageBisher = $d->format("%a");
+                /* aus https://brauerei.mueggelland.de/vergaerungsgrad.html */
+        		$og = $Sud["SWAnstellen"];
+        		$wfg = 0.1808 * $og + 0.1892 * $restextrakt;
+        		$d = 261.1 / (261.53 - $restextrakt);
+        		$abw = ($og - $wfg) / (2.0665 - 0.010665 * $og);
+        		$kcal = round((6.9 * $abw + 4 * ( $wfg - 0.1 )) * 10 * 0.1 * $d);
+
+                $today = date("o-m-d");
+                $recipe = [
+                    "name" => $Sud["Sudname"],
+                    "source" => "Kleiner Brauhelfer",
+                    "equipment" => $ausruestung,
+                    "brewer" => $this->extractText($Sud["Kommentar"], "Brauer", null),
+                    "assistant" => $this->extractText($Sud["Kommentar"], "Assistent", null),
+                    "bjcp2015_style_id" => $this->extractText($Sud["Kommentar"], "BJCP-Style", null),
+                    "type" => RECIPE_TYPE_ALLGRAIN,
+                    "description" => strlen($Sud["Kommentar"]) > 0 ? explode(PHP_EOL, $Sud['Kommentar'])[0] : null,
+                    "notes" => null, // TBD
+                    "created_at" => $Sud["Erstellt"],
+                    "updated_at" => $Sud["Gespeichert"],
+                    "brew_date" => $Sud["Braudatum"] ? $this->localToUtc($Sud["Braudatum"]) : null,
+                    "ferm_start_date" => $Sud["Anstelldatum"] ? $this->localToUtc($Sud["Anstelldatum"]) : null,
+                    "bottle_date" => $Sud["BierWurdeAbgefuellt"] ? $this->localToUtc($Sud["Abfuelldatum"]) : null,
+                    "emptied_date" => null,
+                    "planned_batch_volume" => $Sud["Menge"], // l, into fermenter at 20 °C
+                    "bottled_volume" => $Sud["BierWurdeAbgefuellt"] ? $Sud["erg_AbgefuellteBiermenge"] : null, // bottled or keged
+                    "planned_og" => $this->platoToSg($Sud["SW"]),
+                    "og" => $Sud["BierWurdeGebraut"] ? $this->platoToSg($Sud["SWAnstellen"]) : null,
+                    "estimated_fg" => null, // TBD
+                    "fg" => (($restextrakt > 0) && ($Sud["BierWurdeAbgefuellt"])) ? $this->platoToSg($restextrakt) : null,
+                    "current_g" => (($restextrakt > 0) && ($Sud["BierWurdeGebraut"]) && (! $Sud["BierWurdeAbgefuellt"])) ? $this->platoToSg($restextrakt) : null, // TBD
+                    "abv" => $Sud["BierWurdeAbgefuellt"] ? $Sud["erg_Alkohol"] : null, // %vol
+                    "ibu" => $Sud["IBU"], // IBU
+                    "ebc" => $Sud["erg_Farbe"], // EBC
+                    "calories" => $kcal > 0 ? $kcal : null, // kcal/100ml
+                    //"Planned_co2" => str_replace(",", ".", preg_replace("~[^0-9.,]~i", "", $this->extractText($Sud["Kommentar"], "CO2", null))), // g/l
+                    "planned_co2" => str_replace(",", ".", preg_replace("~[^0-9.,]~i", "", $Sud["CO2"])), // g/l
+                    "co2" => $co2 > 0 ? $co2 : null, // CO2 g/l
+                    "drink_temp" => str_replace(",", ".", preg_replace("~[^0-9.,]~i", "", $this->extractText($Sud["Kommentar"], "Trinktemperatur", null))), // °C
+                    "song" => $this->extractText($Sud["Kommentar"], "Song", null), // "Song zum Bier" :-) (free text)
+                    "song_url" => $this->extractText($Sud["Kommentar"], "Song-URL", null),
+                    "stock" => $this->extractText($Sud["Kommentar"], "Restbestand", null), // "Restbestand" (free text)
+                    "containers" => $this->extractText($Sud["Kommentar"], "Gebinde", null), // "Gebinde" (free text)
+                    "pack_color" => $this->extractText($Sud["Kommentar"], "Kronkorkenfarbe", null), // "Kronkorkenfarbe" (free text)
+                    "age_days" => $Sud["Reifezeit"] * 7,
+                    //"fermentables_total" => $Sud["erg_S_Gesammt"], // kg -- should be calculated
+                    "planned_residual_alkalinity" => $this->dhToPpm($Sud["RestalkalitaetSoll"]), // ppm
+                    "mash_in_temp" => $Sud["EinmaischenTemp"], // °C
+                    "mash_water_volume" => $Sud["erg_WHauptguss"], // l
+                    "mash_ph" => str_replace(",", ".", preg_replace("~[^0-9.,]~i", "", $this->extractText($Sud["Kommentar"], "Maische-pH", null))),
+                    "sparge_water_volume" => $Sud["erg_WNachguss"], // l
+                    "boil_time" => $Sud["KochdauerNachBitterhopfung"], // min
+                    "estimated_sudhausausbeute" => $estimated_sudhausausbeute > 0 ? $estimated_sudhausausbeute : null, // %
+                    "sudhausausbeute" => $Sud["BierWurdeGebraut"] ? $Sud["erg_Sudhausausbeute"] : null, // %
+                    "post_boil_hot_time" => $Sud["Nachisomerisierungszeit"],
+                    //"post_boil_hot_volume" => $Sud["WuerzemengeKochende"], // l at 99 °C TBD: KBH value is at which temp? estimated or actual?  -- calculated?
+                    "post_boil_roomtemp_volume" => $Sud["BierWurdeGebraut"] ? $Sud["WuerzemengeVorHopfenseihen"] : null, // l, theoretically at 20 °C
+                    "batch_volume" => $Sud["BierWurdeGebraut"] ? $Sud["WuerzemengeAnstellen"] : null,
+                    "fermentables" => [],
+                    "mash_steps" => [],
+                    "hops" => [],
+                    "adjuncts" => [],
+                    "yeasts" => [],
+                    "fermentation_steps" => [],
+                    "status" => ($Sud["BierWurdeGebraut"]) ? (($Sud["BierWurdeVerbraucht"]) ? STATUS_EMPTIED : (($Sud["BierWurdeAbgefuellt"]) ? (       (date_add(new DateTime($this->renderDate($this->localToUtc($Sud["Abfuelldatum"]))), new DateInterval('P' . 7 * $Sud["Reifezeit"] . 'D'))->format("Y-m-d") < date("o-m-d"))       ? STATUS_COMPLETE : STATUS_CONDITIONING) : STATUS_FERMENTATION)) : ($this->localToUtc($Sud["Braudatum"] == date("o-m-d") ? STATUS_BREWDAY : STATUS_PREPARING))
+                    // "estimated_attenuation"  // should be calculated (or just copied from yeast?)
+                    // "attenuation"  // should be calculated from og and fg
+                ];
+
+                // fermentables
+        		while ($malz = $dbschuettung->fetchArray()) {
+                    $name = $malz["Name"];
+                    $query = 'SELECT * FROM Malz WHERE Beschreibung = "' . $name . '"';
+                    $result = $db->query($query);
+                    $url = null;
+                    if ($result) {
+                        while ($row = $result->fetchArray()) {
+                            if (strlen($row["Link"]) >= 1) {
+                                $url = $row["Link"];
+                            }
+                        }
+                    }
+                    array_push($recipe["fermentables"], [
+                        "name" => $name,
+                        "usage" => USAGE_MASH,
+                        "url" => $url,
+                        "amount" => $malz["erg_Menge"] // kg
+                        // percentage to be calculated
+                    ]);
+                }
+                
+                // mash_steps
+        		while ($rast = $dbrasten->fetchArray()) {
+                    array_push($recipe["mash_steps"], [
+                        "name" => $rast["RastName"],
+                        "temp" => $rast["RastTemp"], // °C
+                        "time" => $rast["RastDauer"] // minutes
+                    ]);
+                }
+                
+                // hops
+        		while ($hopfen = $dbvwh->fetchArray()) {
+                    $name = $hopfen["Name"];
+                    $query = 'SELECT * FROM Hopfen WHERE Beschreibung = "' . $name . '"';
+                    $result = $db->query($query);
+                    $url = null;
+                    if ($result) {
+                        while ($row = $result->fetchArray()) {
+                            if (strlen($row["Link"]) >= 1) {
+                                $url = $row["Link"];
+                            }
+                        }
+                    }
+                    array_push($recipe["hops"], [
+                        "name" => $hopfen["Name"],
+                        "url" => $url,
+                        "type" => $hopfen["Pellets"] == 1 ? HOP_PELLET : HOP_LEAF,
+                        "usage" => USAGE_FIRSTWORT,
+                        "alpha" => $hopfen["Alpha"] > 0 ? $hopfen["Alpha"] : null,
+                        "time" => null,
+                        "amount" => $hopfen["erg_Menge"] // g
+                    ]);
+                }
+        		while ($hopfen = $dbhopfen->fetchArray()) {
+                    $name = $hopfen["Name"];
+                    $query = 'SELECT * FROM Hopfen WHERE Beschreibung = "' . $name . '"';
+                    $result = $db->query($query);
+                    $url = null;
+                    if ($result) {
+                        while ($row = $result->fetchArray()) {
+                            if (strlen($row["Link"]) >= 1) {
+                                $url = $row["Link"];
+                            }
+                        }
+                    }
+                    if ($hopfen["Zeit"] == 0) {
+                        $usage = USAGE_FLAMEOUT;
+                    } elseif ($hopfen["Zeit"] < 0) {
+                        $usage = USAGE_WHIRLPOOL;
+                    } else {
+                        $usage = USAGE_BOIL;
+                    }
+                    array_push($recipe["hops"], [
+                        "name" => $hopfen["Name"],
+                        "url" => $url,
+                        "type" => $hopfen["Pellets"] == 1 ? HOP_PELLET : HOP_LEAF,
+                        "usage" => $usage,
+                        "alpha" => $hopfen["Alpha"] > 0 ? $hopfen["Alpha"] : null,
+                        "time" => $hopfen["Zeit"],
+                        "amount" => $hopfen["erg_Menge"] // g
+                    ]);
+        		}
+                // dry hop
+        		while ($hopfen = $dbdryhop->fetchArray()) {
+                    $name = $hopfen["Name"];
+                    $query = 'SELECT * FROM Hopfen WHERE Beschreibung = "' . $name . '"';
+                    $result = $db->query($query);
+                    $url = null;
+                    $type = null;
+                    $alpha = null;
+                    if ($result) {
+                        while ($row = $result->fetchArray()) {
+                            if (strlen($row["Link"]) >= 1) {
+                                $url = $row["Link"];
+                                $type = $row["Pellets"] == 1 ? HOP_PELLET : HOP_LEAF;
+                                $alpha = $row["Alpha"];
+                            }
+                        }
+                    }
+                    $time = $hopfen["Zugabedauer"];
+                    if ($time >= 1440) {
+                        $time = $time / 1440;
+                    } elseif ($time == 0) {
+                        $time = null;
+                    }
+                    array_push($recipe["hops"], [
+                        "name" => $name,
+                        "url" => $url,
+                        "type" => $type,
+                        "usage" => USAGE_PRIMARY,
+                        "alpha" => null,
+                        "time" => $time,
+                        "amount" => $hopfen["erg_Menge"] // g
+                    ]);
+        		}
+
+                // adjuncts
+        		while ($adjunct = $dbadjuncts->fetchArray()) {
+                    $name = $adjunct["Name"];
+                    $query = 'SELECT * FROM WeitereZutaten WHERE Beschreibung = "' . $name . '"';
+                    $result = $db->query($query);
+                    $url = null;
+                    $type = null;
+                    $time = $adjunct["Zugabedauer"];
+                    if ($time >= 1440) {
+                        $time = $time / 1440;
+                    } elseif ($time == 0) {
+                        $time = null;
+                    }
+                    if ($adjunct["Zeitpunkt"] == 2) {
+                        $usage = USAGE_MASH;
+                    } elseif ($adjunct["Zeitpunkt"] == 1) {
+                        if ($adjunct["Zugabedauer"] == 0) {
+                            $usage = USAGE_FLAMEOUT;
+                        } elseif ($adjunct["Zugabedauer"] < 0) {
+                            $usage = USAGE_WHIRLPOOL;
+                        } else {
+                            $usage = USAGE_BOIL;
+                        }
+                    } elseif ($adjunct["Zeitpunkt"] == 0) {
+                        $usage = USAGE_PRIMARY;
+                    }
+                    $unit = "g";
+                    $unit_factor = 1;
+                    if ($result) {
+                        while ($row = $result->fetchArray()) {
+                            if (strlen($row["Link"]) >= 1) {
+                                $url = $row["Link"];
+                            }
+                            if ($row["Einheiten"] != 1) {
+                                $unit = "kg";
+                                $unit_factor = 0.001;
+                            }
+                        }
+                    }
+                    // these seem to hops, already stored to $recipe["hops"]
+                    if (($adjunct["Typ"] == -1) or ($adjunct["Typ"] == 100)) {
+                        ;
+                    } else {
+                        // TBD: $type = ...
+                        array_push($recipe["adjuncts"], [
+                            "name" => $name,
+                            "url" => $url,
+                            "type" => $type,
+                            "usage" => $usage,
+                            "time" => $time,
+                            "amount" => $adjunct["erg_Menge"] * $unit_factor,
+                            "unit" => $unit
+                        ]);
+                    }
+                }
+                usort($recipe["adjuncts"], 'adjuncts_cmp');
+
+                // yeast
+                $name = $Sud["AuswahlHefe"];
+                $url = null;
+                $type = null;
+                $form = null;
+                $flocculation = null;
+                $attenuation = null;
+                $temp_min = null;
+                $temp_max = null;
+                $query = 'SELECT * FROM Hefe WHERE Beschreibung = "' . $name . '"';
+                $result = $db->query($query);
+                if ($result) {
+                    while ($row = $result->fetchArray()) {
+                        $url = (strlen($row["Link"]) >= 1) ? $row["Link"] : null;
+                        $type = ($row["TypOGUG"] == 1) ? YEAST_ALE : YEAST_LAGER;
+                        $form = ($row["TypTrFl"] == 1) ? YEAST_FORM_DRY : YEAST_FORM_LIQUID;
+                        if ($row["SED"] == 1) {
+                            $flocculation = FLOC_HIGH;
+                        } elseif ($row["SED"] == 2) {
+                            $flocculation = FLOC_MEDIUM;
+                        } elseif ($row["SED"] == 3) {
+                            $flocculation = FLOC_LOW;
+                        }
+                        $attenuation = ($row["EVG"] > 0) ? $row["EVG"] : null; // %
+                        if ($row["Temperatur"]) {
+                            $matches = array();
+                            preg_match('/^[^0-9]*([0-9]+)[^0-9]+([0-9]*).*$/', $row["Temperatur"], $matches);
+                            if (count($matches) >= 1) {
+                                $temp_min = $matches[1];
+                                if ((count($matches) >= 2) and (strlen($matches[2]) > 0)) {
+                                    $temp_max = $matches[2];
+                                } else {
+                                    $temp_max = $temp_min;
+                                }
+                            }
+                        }
+                    }
+                }
+                array_push($recipe["yeasts"], [
+                    "name" => $name,
+                    "url" => $url,
+                    "type" => $type,
+                    "form" => $form,
+                    "attenuation" => $attenuation,
+                    "flocculation" => $flocculation,
+                    "temp_min" => $temp_min,
+                    "temp_max" => $temp_max,
+                    "unit" => "packets",
+                    "amount" => $Sud["HefeAnzahlEinheiten"]
+                ]);
+                
+                // fermentation
+                array_push($recipe["fermentation_steps"], [
+                    "name" => "Hauptgärung",
+                    "planned_days" => null,
+                    "planned_temp" => null,
+                    "days" => $primary_days,
+                    "temp" => $primary_temp // °C
+                ]);
+                if ($secondary_temp > 0) {
+                    array_push($recipe["fermentation_steps"], [
+                        "name" => "Nachgärung",
+                        "planned_days" => null,
+                        "planned_temp" => null,
+                        "days" => $secondary_days,
+                        "temp" => $secondary_temp // °C
+                    ]);
+                }
+                // explicit fermentation info
+                $ferms = $this->extractText($Sud["Kommentar"], "Fermentation", null);
+                $ferms = explode(",", $ferms);
+                $i = 0;
+                foreach ($ferms as $ferm) {
+                    $name = null; $days = null; $temp = null;
+                    $a = explode("@", $ferm);
+                    $temp = $a[1];
+                    $a = explode(":", $a[0]);
+                    if (count($a) == 1) {
+                        $days = $a[0];
+                    } else {
+                        $name = $a[0];
+                        $days = $a[1];
+                    }
+                    if ($name) {
+                        $recipe["fermentation_steps"][$i]["name"] = $name;
+                    }
+                    if ($days > 0) {
+                        $recipe["fermentation_steps"][$i]["planned_days"] = $days;
+                    }
+                    if ($temp > 0) {
+                        $recipe["fermentation_steps"][$i]["planned_temp"] = $temp;
+                    }
+                    $i += 1;
+                }
+                
+                $recipe["wp_href"] = $href;
+
+                array_push($recipes, $recipe);
+                
+            }
+            $db->close();
+        }
+
+        if (($source == "bf") || (!$source)) {
+
+            // from single Brewfather exported JOSN batches posted to WordPress...
+            if (($type == "batch") || (!$type)) {
+                global $query;
+                $original_query = $query;
+                $query = null;
+                $query = new WP_Query( array(
+                    'post_status' => 'any',
+                    'post_type' => 'attachment',
+                    'post_mime_type' => 'application/json',
+                    'posts_per_page' => 1000 ) );
+                while ( $query->have_posts() ) {
+                    $query->the_post();
+                    $file_title = get_the_title();
+                    if ((!$title) || (fnmatch($title, $file_title))) {
+                        // TBD: other filtering attributes year, tags, ...?
+                        $href = null; $maxl = 0;
+                        foreach ($posts as $post) {
+                            for ($l = 1; $l < strlen($file_title); $l++) {
+                                $sub = substr($file_title, 0, $l);
+                                if (strpos($post["title"], $sub) !== false) {
+                                    if ($l > $maxl) {
+                                        $maxl = $l;
+                                        $href = $post["url"];
+                                    }
+                                }
+                            }
+                        }
+                        
+                        # PROCESS $batch
+                        $path = get_attached_file(get_the_ID(), true);
+                        $json = file_get_contents($path);
+                        $batch = json_decode($json, true);
+                        $recipe = $this->get_recipe_from_bf($batch, $batch["recipe"]);
+                        $recipe["wp_href"] = $href;
+                        array_push($recipes, $recipe);
+                    }
+                }
+                $query = null;
+                $query = $original_query;
+                wp_reset_postdata();
             }
         }
-        if (! $bf_batch) {
-            foreach ($all["data"]["recipes"] as $r) {
-                if ($a["title"] && fnmatch($a["title"], $r["name"])) {
-                    $bf_recipe = $r;
+
+/*        
+        if (($source == "bfdump") || (!$source)) {
+
+            // from Brewfather JSON dump file...
+            $location = $this->getBfLocation();
+            $json = file_get_contents($location);
+            $all = json_decode($json, true);
+
+            // filter by type, tag and year
+            if (($type == "batch") || (!$type)) {
+                foreach ($all["data"]["batches"] as $batch) {
+                    if ((!$tag) || (in_array($tag, $batch["searchTags"]))) {
+                        if ((!$title) || (fnmatch($title, $batch["name"]))) { 
+                            $date = substr($this->secsToDate($batch["brewDate"] / 1000), 0, 10);
+                            $y = substr($date, 0, 4);
+                            if ((!$year) || ($year == $y)) {
+                                $href = null; $maxl = 0;
+                                foreach ($posts as $post) {
+                                    for ($l = 1; $l < strlen($batch["name"]); $l++) {
+                                        $sub = substr($batch["name"], 0, $l);
+                                        if (strpos($post["title"], $sub) !== false) {
+                                            if ($l > $maxl) {
+                                                $maxl = $l;
+                                                $href = $post["url"];
+                                            }
+                                        }
+                                    }
+                                }
+
+                                # PROCESS $batch
+                                $recipe = $this->get_recipe_from_bf($batch, $batch["recipe"]);
+                                $recipe["wp_href"] = $href;
+                                array_push($recipes, $recipe);
+
+                            }
+                        }
+                    }
+                }
+            }
+            if (($type == "recipe") || (!$type)) {
+                foreach ($all["data"]["recipes"] as $recipe) {
+                    if ((!$tag) || (in_array($tag, $recipe["searchTags"]))) {
+                        if ((!$title) || (fnmatch($title, $recipe["name"]))) { 
+                            $date = substr($this->secsToDate($recipe["_created"]["seconds"]), 0, 10);
+                            $y = substr($date, 0, 4);
+                            if ((!$year) || ($year == $y)) {
+                                $href = null; $maxl = 0;
+                                foreach ($posts as $post) {
+                                    for ($l = 1; $l < strlen($recipe["name"]); $l++) {
+                                        $sub = substr($recipe["name"], 0, $l);
+                                        if (strpos($post["title"], $sub) !== false) {
+                                            if ($l > $maxl) {
+                                                $maxl = $l;
+                                                $href = $post["url"];
+                                            }
+                                        }
+                                    }
+                                }
+
+                                # PROCESS $recipe
+                                $recipe0 = $this->get_recipe_from_bf(null, $recipe);
+                                $recipe0["wp_href"] = $href;
+                                array_push($recipes, $recipe0);
+
+                            }
+                        }
+                    }
                 }
             }
         }
+*/            
+        usort($recipes, 'recipe_cmp');
+        
+        return $recipes;
+    }
+
+
+
+    function get_recipe_from_bf($bf_batch, $bf_recipe) {
 
         $og = $this->sgToPlato($bf_batch["measuredOg"] ? $bf_batch["measuredOg"] : $bf_recipe["og"]);
         $restextrakt = $this->sgToPlato($bf_batch["measuredFg"] ? $bf_batch["measuredFg"] : $bf_recipe["fg"]);
@@ -2944,15 +3234,49 @@ class WP_Brewing {
         $abw = ($og - $wfg) / (2.0665 - 0.010665 * $og);
         $kcal = round((6.9 * $abw + 4 * ( $wfg - 0.1 )) * 10 * 0.1 * $d);
 
+        $status = $bf_batch ? (($bf_batch["status"] == "Planning") ? STATUS_PREPAIRING : (($bf_batch["status"] == "Archived") ? STATUS_EMPTIED : (($bf_batch["status"] == "Completed") ? STATUS_COMPLETE : (($bf_batch["status"] == "Fermenting") ? STATUS_FERMENTATION : (($bf_batch["status"] == "Conditioning") ? STATUS_CONDITIONING : STATUS_BREWDAY))))) : STATUS_RECIPE;
+
+        $current_g = null;
+        $current_g_source = null;
+        $current_g_time = null;
+        if (($status >= STATUS_FERMENTATION) && ($status < STATUS_FERMENTATION_SECONDARY)) {
+            foreach ($bf_batch["devices"] as $d) {
+                foreach ($d["items"] as $i) {
+                    if (($i["batchId"] == $bf_batch["_id"]) && ($i["enabled"] == true)) {
+                        if ($i["lastData"]["time"] > $current_g_time) {
+                            $current_g = $i["lastData"]["sg"];
+                            $current_g_source = $i["key"];
+                            $current_g_time = $i["lastData"]["time"];
+                        }
+                    }
+                }
+            }
+            $filename = '/opt/brewagent/ispindel-latest.json';
+            $json = file_get_contents($filename);
+            $latest = json_decode($json, true);
+            if ($latest && $latest["gravity"]) {
+                $mtime = filemtime($filename);
+                $date = $this->secsToDate($mtime);
+                $plato = $latest["gravity"];
+                $gravity = $this->platoToSg($plato);
+                if (($plato >= 0.0) and ($plato <= 20.0) and ($mtime >= (time() - 3600))) {
+                    $current_g = $gravity;
+                    $current_g_source = $latest["name"];
+                    $current_g_time = $date; // TBD adjust
+                }
+            }
+        }
+        
         $recipe = [
             "name" => $bf_batch ? $bf_batch["name"] : $bf_recipe["name"],
             "source" => "Brewfather " . ($bf_batch ? $bf_batch["_version"] : $bf_recipe["_version"]),
             "equipment" => $bf_recipe["equipment"]["name"],
             "brewer" => $bf_batch ? $bf_batch["brewer"] : $bf_recipe["author"],
             "created_at" => $this->secsToDate($bf_batch ? $bf_batch["_created"]["seconds"] : $bf_recipe["_created"]["seconds"]),
-            "updated_at" => $this->secsToDate($bf_batch ? $bf_batch["_timestamp"]["seconds"] : $bf_recipe["_timestamp"]["seconds"]),
+            "updated_at" => $bf_batch ? $this->secsToDate($bf_batch["_timestamp_ms"] / 1000) : $this->secsToDate($bf_recipe["_timestamp"]["seconds"]),
             "description" => (strlen($bf_batch["batchNotes"]) + strlen($bf_recipe["notes"])) > 0 ? explode(PHP_EOL, strlen($bf_batch["batchNotes"]) > 0 ? $bf_batch["batchNotes"] : $bf_recipe["notes"])[0] : null,
             "brew_date" => $bf_batch ? $this->secsToDate($bf_batch["brewDate"] / 1000) : null,
+            "ferm_start_date" => $bf_batch ? $this->secsToDate($bf_batch["fermentationStartDate"] / 1000) : null,
             "bottle_date" => $bf_batch ? $this->secsToDate($bf_batch["bottlingDate"] / 1000) : null,
             "planned_batch_volume" => $bf_recipe["batchSize"],
             "bottled_volume" => $bf_batch ? $bf_batch["measuredBottlingSize"] : null,
@@ -2960,7 +3284,9 @@ class WP_Brewing {
             "og" => $bf_batch ? $bf_batch["measuredOg"] : null,
             "estimated_fg" => $bf_recipe["fg"],
             "fg" => $bf_batch ? $bf_batch["measuredFg"] : null,
-            // TBD: current_g: brewfather readings seem to be missing from exported json user data !
+            "current_g" => $current_g,
+            "current_g_source" => $current_g_source,
+            "current_g_time" => $current_g_time ? $this->secsToDate($current_g_time) : null,
             "abv" => $bf_batch["measuredAbv"] ? $bf_batch["measuredAbv"] : $bf_recipe["abv"],
             "ibu" => $bf_recipe["ibu"],
             "ebc" => $this->srmToEbc($bf_recipe["color"]),
@@ -2991,7 +3317,7 @@ class WP_Brewing {
             "adjuncts" => [],
             "yeasts" => [],
             "fermentation_steps" => [],
-            "status" => $bf_batch ? (($bf_batch["status"] == "Planning") ? STATUS_PREPAIRING : (($bf_batch["status"] == "Archived") ? STATUS_EMPTIED : (($bf_batch["status"] == "Completed") ? STATUS_COMPLETE : (($bf_batch["status"] == "Fermenting") ? STATUS_FERMENTATION : STATUS_BREWDAY)))) : STATUS_RECIPE,
+            "status" => $status
         ];
         
         if ($bf_recipe["type"] == "All Grain") {
@@ -3046,12 +3372,15 @@ class WP_Brewing {
 
         // hops
         foreach ($bf_recipe["hops"] as $h) {
+            $usage = $h["use"] == "First Wort" ? USAGE_FIRSTWORT : ($h["use"] == "Boil" ? ($h["time"] > 0 ? USAGE_BOIL : USAGE_FLAMEOUT) : ($h["use"] == "Mash" ? USAGE_MASH : ($h["use"] == "Aroma" ? USAGE_WHIRLPOOL : USAGE_PRIMARY)));
+            $time_unit = $usage == USAGE_PRIMARY ? $h["timeUnit"] : null;
             array_push($recipe["hops"], [ 
                 "name" => $h["name"],
                 "type" => $h["type"] == "Pellet" ? HOP_PELLET : HOP_LEAF, // TBD: other hop types
-                "usage" => $h["use"] == "First Wort" ? USAGE_FIRSTWORT : ($h["use"] == "Boil" ? ($h["time"] > 0 ? USAGE_BOIL : USAGE_FLAMEOUT) : ($h["use"] == "Mash" ? USAGE_MASH : ($h["use"] == "Aroma" ? USAGE_WHIRLPOOL : USAGE_PRIMARY))),
+                "usage" => $usage,
                 "alpha" => $h["alpha"],
                 "time" => $h["time"],
+                "time_unit" => $time_unit,
                 "amount" => $h["amount"],
             ]);
         }
@@ -3065,6 +3394,7 @@ class WP_Brewing {
                 "time" => $m["time"],
                 "amount" => $m["amount"],
                 "unit" => $m["unit"],
+                "water_adj" => $m["waterAdjustment"],
             ]);
         }
 
@@ -3082,15 +3412,120 @@ class WP_Brewing {
                 "amount" => $y["amount"],
             ]);
         }
-
-        
-        $content = $this->renderRecipe($recipe);
-        
-        return $content;
+        return $recipe;
     }
     
 
 
+    function recipe_shortcode($atts) {
+
+        $att = shortcode_atts (array(
+            'mode' => null,
+            'year' => null,
+    		'source' => null,
+    		'type' => null,
+    		'tag' => null,
+    		'title' => null
+        ), $atts);
+        
+        $recipes = $this->get_recipes($att["year"], $att["source"], $att["type"], $att["tag"], $att["title"]);
+
+        $recipe = $recipes[0];
+        
+        $content = $this->renderRecipe($recipe);
+        
+    	return $content;
+    }
+
+
+
+    function kbh_recipe_shortcode($atts) {
+
+        $att = shortcode_atts (array(
+            'mode' => null,
+            'year' => null,
+    		'source' => null,
+    		'type' => null,
+    		'tag' => null,
+    		'title' => null
+        ), $atts);
+
+        $recipes = $this->get_recipes($att["year"], "kbh", $att["type"], $att["tag"], $att["title"]);
+
+        $content = $this->renderRecipe($recipes[0]);
+        
+    	return $content;
+    }
+
+
+
+    function bf_recipe_shortcode($atts) {
+
+        $att = shortcode_atts (array(
+            'mode' => null,
+            'year' => null,
+    		'source' => null,
+    		'type' => null,
+    		'tag' => null,
+    		'title' => null
+        ), $atts);
+
+        $recipes = $this->get_recipes($att["year"], "bf", $att["type"], $att["tag"], $att["title"]);
+
+        $content = $this->renderRecipe($recipes[0]);
+        
+    	return $content;
+    }
+    
+
+
+    function recipes_shortcode($atts) {
+
+        $att = shortcode_atts (array(
+            'mode' => null,
+            'year' => null,
+    		'source' => null,
+    		'type' => null,
+    		'tag' => null,
+    		'title' => null
+        ), $atts);
+
+        #$recipes = get_recipes($att["year"], $att["source"], $att["type"], $att["tag"], $att["title"]);
+        
+        return $this->renderRecipeTable($att["mode"], $att["year"], $att["source"], $att["type"], $att["tag"], $att["title"]);
+    }
+
+
+
+    function kbh_recipes_shortcode($atts) {
+
+        $att = shortcode_atts (array(
+            'mode' => null,
+            'year' => null
+        ), $atts);
+
+        return $this->renderRecipeTable($att["mode"], $att["year"], "kbh", null, null, null);
+    }
+
+
+
+    function kbh_send_2075($year) {
+
+        $filename = "Formular-2075-" . $year;
+
+        header("Expires: 0");
+        header("Cache-Control: no-cache, no-store, must-revalidate");
+        header("Pragma: no-cache");	
+        header("Content-type: application/xml");
+        header("Content-Disposition:attachment; filename={$filename}");
+
+        echo $this->renderRecipeTable("xml", $year, "kbh", null, null, null);
+
+        exit();
+    }
+    
+
+    
     function bf_recipes_shortcode($atts) {
 
         $att = shortcode_atts (array(
@@ -3101,110 +3536,11 @@ class WP_Brewing {
             'title' => null
         ), $atts);
 
-        return $this->recipe_table($att["mode"], $att["year"], "bf", $att["type"], $att["tag"], $att["title"]);
+        return $this->renderRecipeTable($att["mode"], $att["year"], "bf", $att["type"], $att["tag"], $att["title"]);
     }
 
 
 
-    function bs_recipe_shortcode($atts) {
-
-    	$a = shortcode_atts (array(
-    		'title' => null
-        ), $atts);
-        
-    	$location = get_option('wp_brewing_bs_location', null);
-    	$cache = get_option('wp_brewing_bs_cache', 3600);
-    	if (strpos($location, '//') !== false) {
-            $path = get_temp_dir() . "/wp-brewing-bs-recipes.bsmx";
-            if ((!file_exists($path)) || (time()-filemtime($location) > $cache)) {
-                $response = wp_remote_get($location);
-                if (is_array($response)) {
-                    $data = $response['body'];
-                    file_put_contents($path, $data);
-                    $location = $path;
-                } else {
-                    return '[embedding recipe failed.] <!-- could not load BeerSmith recipes from ' . $location . ' -->';
-                }
-            }
-    	}
-
-        $doc = new DOMDocument();
-        $doc->loadHTMLFile($location);
-        $xpath = new DOMXPath($doc);
-        $recipes = $xpath->query('//recipe[f_r_name]');
-        if ( $recipes->length < 1 ) {
-            return null;
-        }
-        foreach ($recipes as $recipe) {
-            $recipe = [
-                "name" => $recipe->getElementsByTagName('f_r_name')->item(0)->textContent,
-                "brewer" => $recipe->getElementsByTagName('f_r_brewer')->item(0)->textContent,
-                "assistant" => $recipe->getElementsByTagName('f_r_asst_brewer')->item(0)->textContent,
-                "created_at" => $this->localToUtc($recipe->getElementsByTagName('f_r_inv_date')->item(0)->textContent),
-                "updated_at" => $this->localToUtc($recipe->getElementsByTagName('_mod_')->item(0)->textContent),
-                "brewed_at" => $this->localToUtc($recipe->getElementsByTagName('f_r_date')->item(0)->textContent),
-                "planned_batch_volume" => $this->flOzToL($recipe->getElementsByTagName('f_r_equipment')->item(0)->getElementsByTagName('f_e_batch_vol')->item(0)->textContent),
-                "bottled_volume" => $this->flOzToL($recipe->getElementsByTagName('f_r_final_vol_measured')->item(0)->textContent),
-                "stammwuerze" => 0, // grad plato
-                "restextrakt" => 0, // GG%
-                "abv" => 0, // %vol
-                "ibu" => 0, // IBU
-                "ebc" => 0, // EBC
-                "calories" => 0, // kcal/100ml
-                "co2" => 0, // CO2 g/l
-                "drink_temp" => 0, // °C
-                "song" => null, // "Song zum Bier" :-) (free text)
-                "song_url" => null,
-                "stock" => null, // "Restbestand" (free text)
-                "containers" => null, // "Gebinde" (free text)
-                "pack_color" => null, // "Kronkorkenfarbe" (free text)
-                "age_days" => 0
-            ];
-
-            $content .= $this->renderRecipe($recipe);
-            
-        }
-
-        return "-" . $content;
-    }
-
-
-
-    function bs_recipes_shortcode($atts) {
-
-        $att = shortcode_atts (array(
-            'mode' => null,
-            'select' => null
-        ), $atts);
-        if ($att['select']) {
-            $where = " WHERE " . $att['select'];
-        } else {
-            $where = "";
-        }
-
-    	$location = get_option('wp_brewing_bs_location', null);
-    	$cache = get_option('wp_brewing_bs_cache', 3600);
-    	if (strpos($location, '//') !== false) {
-            $path = get_temp_dir() . "/wp-brewing-bs-recipes.bsmx";
-            if ((!file_exists($path)) || (time()-filemtime($location) > $cache)) {
-                $response = wp_remote_get($location);
-                if (is_array($response)) {
-                    $data = $response['body'];
-                    file_put_contents($path, $data);
-                    $location = $path;
-                } else {
-                    return '[embedding recipe failed.] <!-- could not load BeerSmith recipes from ' . $location . ' -->';
-                }
-            }
-    	}
-
-
-        return "dummy2";
-
-    }
-
-
-    
     function bjcp_styleguide_shortcode($atts) {
 
         $id = $_GET['id'];
