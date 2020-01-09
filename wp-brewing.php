@@ -150,9 +150,11 @@ class WP_Brewing {
         add_shortcode('bf-recipe', array($this, 'bf_recipe_shortcode'));
         add_shortcode('bf-recipes', array($this, 'bf_recipes_shortcode'));
 
+/*
         add_shortcode('bjcp-styleguide', array($this, 'bjcp_styleguide_shortcode'));
         add_shortcode('bjcp-style', array($this, 'bjcp_style_shortcode'));
-        
+*/
+
         // if (isset($_GET["attachment_id"] ) && isset($_GET['download_2075'])) {
         if (isset($_GET['download_2075'])) {
             $this->send_2075($_GET['download_2075']);
@@ -688,6 +690,7 @@ class WP_Brewing {
 
 
 
+/*
     function renderStyleList() {
         $xpath = $this->getStyleguideDoc();
         $content = '<p>These pages render the contents of the <a href="https://www.bjcp.org/stylecenter.php">BJCP style guideline</a> (2015). The source is taken from its XML representation, available on <a href="https://github.com/meanphil/bjcp-guidelines-2015">GitHub</a>.</p>';
@@ -902,6 +905,7 @@ class WP_Brewing {
         if (! $node) { return null; }
         return $node->getAttribute($attrname);
     }
+*/
 
 
     
@@ -3705,7 +3709,7 @@ function wp_brewing_toggle_notes() {
     }
 
 
-
+/*
     function bjcp_styleguide_shortcode($atts) {
 
         $id = $_GET['id'];
@@ -3736,7 +3740,7 @@ function wp_brewing_toggle_notes() {
         return $this->renderStyle($param);
         
     }
-
+*/
 
     
 }
