@@ -33,8 +33,10 @@ define("USAGE_FLAMEOUT", 7);
 define("USAGE_WHIRLPOOL", 8);
 define("USAGE_PRIMARY", 9);
 define("USAGE_SECONDARY", 10);
-define("USAGE_KEG", 11);
-define("USAGE_BOTTLE", 12);
+define("USAGE_TERTIARY", 11);
+define("USAGE_COLDCRASH", 12);
+define("USAGE_KEG", 13);
+define("USAGE_BOTTLE", 14);
 
 define("HOP_LEAF", 1);
 define("HOP_PELLET", 2);
@@ -104,6 +106,12 @@ function gaben_cmp($a, $b) {
 
 
 
+function notes_cmp($a, $b) {
+    return $a["time"] > $b["time"];
+}
+
+
+
 class WP_Brewing {
 
 
@@ -147,7 +155,7 @@ class WP_Brewing {
         
         // if (isset($_GET["attachment_id"] ) && isset($_GET['download_2075'])) {
         if (isset($_GET['download_2075'])) {
-            $this->kbh_send_2075($_GET['download_2075']);
+            $this->send_2075($_GET['download_2075']);
         }
 
     }
@@ -617,6 +625,7 @@ class WP_Brewing {
 
 
     function secsToDate($v) {
+        date_default_timezone_set("Europe/Berlin");
         return strftime("%FT%TZ", $v);
     }
 
@@ -628,7 +637,13 @@ class WP_Brewing {
 
 
 
-    function renderStyleName($style_id) {
+    function renderDateAndTime($v) {
+        return substr($v, 0, 10) . " " . substr($v, 11, 5);
+    }
+
+
+
+    function getStyleguideDoc() {
         $styleguide_name = get_option('wp_brewing_bjcp_name', 'styleguide');
         global $query;
         $original_query = $query;
@@ -643,7 +658,23 @@ class WP_Brewing {
             $doc = new DOMDocument();
             $doc->load($path);
             $xpath = new DOMXPath($doc);
-            $q = "//subcategory[@id=" . '"' . $style_id . '"' . "]";
+	    $xpath->registerNameSpace('bjcp', 'http://heimbrauconvention.de/bjcp-styleguide/2015');
+	    $ret = $xpath;
+        }
+        $query = null;
+        $query = $original_query;
+        wp_reset_postdata();
+        return $ret;
+    }	  
+
+
+
+    function renderStyleName($style_id) {
+        $xpath = $this->getStyleguideDoc();
+	if (! $xpath) {
+            $ret = "(Styleguide nicht definiert oder nicht lesbar.)";
+	} else {
+            $q = "(//bjcp:category[@id=" . '"' . $style_id . '"' . "] | //bjcp:subcategory[@id=" . '"' . $style_id . '"' . "])";
             $styles = $xpath->query($q);
             if ( $styles->length < 1 ) {
                 $ret = "(Unbekannte Bierstil-ID " . $style_id . ")";
@@ -651,243 +682,205 @@ class WP_Brewing {
             foreach ($styles as $style) {
                 $ret = $style->getElementsByTagName('name')->item(0)->textContent;
             }
-        }
-        $query = null;
-        $query = $original_query;
-        wp_reset_postdata();
-        
+	}
         return $ret;
     }
 
 
 
     function renderStyleList() {
-        $styleguide_name = get_option('wp_brewing_bjcp_name', 'styleguide');
-        global $query;
-        $original_query = $query;
-        $query = null;
-        $query = new WP_Query( array(
-            'post_type' => 'attachment',
-            'name' => $styleguide_name ) );
+        $xpath = $this->getStyleguideDoc();
         $content = '<p>These pages render the contents of the <a href="https://www.bjcp.org/stylecenter.php">BJCP style guideline</a> (2015). The source is taken from its XML representation, available on <a href="https://github.com/meanphil/bjcp-guidelines-2015">GitHub</a>.</p>';
-        while ($query->have_posts()) {
-            $query->the_post();
-            $path = get_attached_file(get_the_ID(), true);
-            $doc = new DOMDocument();
-            $doc->load($path);
-            $xpath = new DOMXPath($doc);
-            // $q = "(//category/name | //subcategory/name | //specialty/name)/text()";
-            $q = "(//subcategory/name | //specialty/name)/text()";
-            $names = $xpath->query($q);
-            $list = null;
-            foreach ($names as $name) {
-                $n = $name->textContent;
-                if ($list) { $list .= ", "; }
-                $list .= "<a href=\"/bjcp-styleguide?id=" . $n . "\">" . $n . "</a>";
-            }
+        // $q = "(//category/name | //subcategory/name | //specialty/name)/text()";
+	// $q = "(//subcategory/name | //specialty/name)/text()";
+        $q = "(//bjcp:category/bjcp:name | //bjcp:subcategory/bjcp:name)/text()";
+        $names = $xpath->query($q);
+        $list = null;
+        foreach ($names as $name) {
+            $n = $name->textContent;
+            if ($list) { $list .= ", "; }
+            $list .= "<a href=\"/bjcp-styleguide?id=" . $n . "\">" . $n . "</a>";
         }
         $content .= $list;
-
-        $query = null;
-        $query = $original_query;
-        wp_reset_postdata();
-
         return $content;
     }
 
 
 
     function renderStyle($id_or_name) {
-        $styleguide_name = get_option('wp_brewing_bjcp_name', 'styleguide');
-        global $query;
-        $original_query = $query;
-        $query = null;
-        $query = new WP_Query( array(
-            'post_type' => 'attachment',
-            'name' => $styleguide_name ) );
-        $content = null;
-        while ($query->have_posts()) {
-            $query->the_post();
-            $path = get_attached_file(get_the_ID(), true);
-            $doc = new DOMDocument();
-            $doc->load($path);
-            $xpath = new DOMXPath($doc);
-            $q = "//class[@type=" . '"' . $id_or_name . '"' . "] | //category[@id=" . '"' . $id_or_name . '"' . "] | //category[name=" . '"' . $id_or_name . '"' . "] | //subcategory[@id=" . '"' . $id_or_name . '"' . "] | //subcategory[name=" . '"' . $id_or_name . '"' . "] | //specialty[name=" . '"' . $id_or_name . '"' . "]";
-            $styles = $xpath->query($q);
-            if ( $styles->length < 1 ) {
-                $content = "(Unbekannter Bierstil " . $id_or_name . ")";
-            }
-            foreach ($styles as $style) {
-
-                $class_fragment = "";
-                $node = $style;
-                $l0 = "/glossary/bjcp-";
-                if ($node->nodeName == "specialty") {
-                    $l = strtolower(str_replace(" ", "-", $this->childNode($node, "name")->textContent));
-                    $class_fragment = "<br/> > > > <a href=\"" . $l0 . $l . "\">Specialty \"" . $this->childNode($node, "name")->textContent . "\"</a>";
-                    $node = $node->parentNode;
-                }
-                if ($node->nodeName == "subcategory") {
-                    $l = strtolower($this->attr($node, "id"));
-                    $class_fragment = "<br/> > > <a href=\"" . $l0 . $l . "\">Subcategory " . $this->attr($node, "id") . " (" . $this->childNode($node, "name")->textContent . ")</a>" . $class_fragment;
-                    $node = $node->parentNode;
-                }
-                if ($node->nodeName == "category") {
-                    $l = strtolower($this->attr($node, "id"));
-                    $class_fragment = "<br/> > <a href=\"" . $l0 . $l . "\">Category " . $this->attr($node, "id") . " (" . $this->childNode($node, "name")->textContent . ")</a>" . $class_fragment;
-                    $node = $node->parentNode;
-                }
-                if ($node->nodeName == "class") {
-                    $l = $this->attr($node, "type");
-                    $class_fragment = "<a href=\"" . $l0 . $l . "\">Class " . $this->attr($node, "type") . "</a>" . $class_fragment;
-                    $node = $node->parentNode;
-                }
-                $class_fragment = "<dt>Classification</dt><dd>" . $class_fragment . "</dd>";
-
-                $stats_fragment = "";
-                $ibu = "unbestimmt";
-                $og = "unbestimmt";
-                $fg = "unbestimmt";
-                $srm = "unbestimmt";
-                $abv = "unbestimmt";
-                $stats = $this->childNode($style, 'stats');
-                $value = $this->childNode($this->childNode($stats, 'ibu'), 'low')->textContent / $this->sgToPlato($this->childNode($this->childNode($stats, 'og'), 'high')->textContent);
-                if ($value < 1.5) { $descr = "sehr malzig"; }
-                elseif ($value < 2.0) { $descr = "malzig"; }
-                elseif ($value < 2.2) { $descr = "ausgewogen"; }
-                elseif ($value < 3.0) { $descr = "herb"; }
-                elseif ($value < 6.0) { $descr = "sehr herb"; }
-                else { $descr = "Hopfenbombe"; }
-                $value = $this->childNode($this->childNode($stats, 'ibu'), 'high')->textContent / $this->sgToPlato($this->childNode($this->childNode($stats, 'og'), 'low')->textContent);
-                if ($value < 1.5) { $descr .= " - sehr malzig"; }
-                elseif ($value < 2.0) { $descr .= " - malzig"; }
-                elseif ($value < 2.2) { $descr .= " - ausgewogen"; }
-                elseif ($value < 3.0) { $descr .= " - herb"; }
-                elseif ($value < 6.0) { $descr .= " - sehr herb"; }
-                else { $descr .= " - Hopfenbombe"; }
-                if ($this->attr($this->childNode($stats, 'og'), 'flexible') == "false") {
-                    $low = $this->childNode($this->childNode($stats, 'og'), 'low')->textContent;
-                    $high = $this->childNode($this->childNode($stats, 'og'), 'high')->textContent;
-                    $og = number_format($this->sgToPlato($low), 1, ",", ".") . " - " . number_format($this->sgToPlato($high), 1, ",", ".") . " °P</td>" . "<td>OG " . number_format($low, 3, ",", ".") . " - " . number_format($high, 3, ",", ".");
-                    $stats_fragment .= $this->formatString("<tr><td>Stammwürze</td><td>{og}</td></tr>", [ "og" => $og ]);
-                }
-                if ($this->attr($this->childNode($stats, 'fg'), 'flexible') == "false") {
-                    $low = $this->childNode($this->childNode($stats, 'fg'), 'low')->textContent;
-                    $high = $this->childNode($this->childNode($stats, 'fg'), 'high')->textContent;
-                    $fg = number_format($this->sgToPlato($low), 1, ",", ".") . " - " . number_format($this->sgToPlato($high), 1, ",", ".") . " GG%</td>" . "<td>FG " . number_format($low, 3, ",", ".") . " - " . number_format($high, 3, ",", ".");
-                    $stats_fragment .= $this->formatString("<tr><td>Restextrakt</td><td>{fg}</td></tr>", [ "fg" => $fg ]);
-                }
-                if ($this->attr($this->childNode($stats, 'abv'), 'flexible') == "false") {
-                    $low = $this->childNode($this->childNode($stats, 'abv'), 'low')->textContent;
-                    $high = $this->childNode($this->childNode($stats, 'abv'), 'high')->textContent;
-                    $abv = number_format($low, 1, ",", ".") . " - " . number_format($high, 1, ",", ".") . " %vol" . "</td>" . "<td>";
-                    $stats_fragment .= $this->formatString("<tr><td>Alkohol</td><td>{abv}</td></tr>", [ "abv" => $abv ]);
-                }
-                if ($this->attr($this->childNode($stats, 'ibu'), 'flexible') == "false") {
-                    $low = $this->childNode($this->childNode($stats, 'ibu'), 'low')->textContent;
-                    $high = $this->childNode($this->childNode($stats, 'ibu'), 'high')->textContent;
-                    $ibu = $low . " - " . $high . " IBU" . "</td>" . "<td>" . "(" . $descr . ")";
-                    $stats_fragment .= $this->formatString("<tr><td>Bittere</td><td>{ibu}</td></tr>", [ "ibu" => $ibu ]);
-                }
-                if ($this->attr($this->childNode($stats, 'srm'), 'flexible') == "false") {
-                    $low = $this->childNode($this->childNode($stats, 'srm'), 'low')->textContent;
-                    $high = $this->childNode($this->childNode($stats, 'srm'), 'high')->textContent;
-                    $srm = number_format($this->srmToEbc($low), 1, ",", ".") . " - " . number_format($this->srmToEbc($high), 1, ",", ".") . " EBC</td>" . "<td>" . number_format($low, 1, ",", ".") . " - " . number_format($high, 1, ",", ".") . " SRM";
-                    $stats_fragment .= "";
-                    $stats_fragment .= $this->formatString("<tr><td>Farbe</td><td>{srm}</td></tr>", [ "srm" => $srm ]);
-                }
-                if ($stats_fragment != "") {
-                    $stats_fragment = "<table>" . $stats_fragment . "</table>";
-                }
-
-                $details_fragment = "";
-                $details = array('Notes', 'Aroma', 'Appearance', 'Flavor', 'Mouthfeel', 'Impression', 'Comments', 'History', 'Ingredients', 'Comparison', 'Examples', 'Tags');
-                foreach ($details as $detail) {
-                    $value = $this->childNode($style, strtolower($detail))->textContent;
-                    if ($value) {
-                        $details_fragment .= "<dt>" . $detail . "</dt><dd>" . $value . "</dd>";
-                    }
-                }
-                
-                $specialties_fragment = "";
-                if ($this->childNode($style, 'entry_instructions')) {
-                    $specialties_fragment = $this->formatString(
-                        '<dt>Specialty entry instructions</dt><dd>{instr}</dd>',
-                        [
-                            'instr' => $doc->saveXML($this->childNode($style, 'entry_instructions'))
-                        ]);
-                    //$list = null;
-                    //$specialties = $style->getElementsByTagName('specialty');
-                    //foreach ($specialties as $specialty) {
-                    //    if ($list) { $list .= ", "; }
-                    //    $n = $specialty->getElementsByTagName('name')->item(0)->textContent;
-                    //    // $list .= $specialty->getElementsByTagName('name')->textContent;
-                    //    $list .= $n;
-                    //}
-                    //$specialties_fragment .= "<dt>Defined Specialties</dt><dd>" . $list . "</dd>";
-                    $details_fragment .= $specialties_fragment;
-                }
-
-                $children_fragment = "";
-                if ($style->nodeName == "subcategory") {
-                    $list = null;
-                    foreach ($style->childNodes as $c) {
-                        if ($c->nodeType == XML_ELEMENT_NODE) {
-                            if ($list) { $list .= ", "; }
-                            $n = $this->childNode($c, 'name')->textContent;
-                            $list .= $n;
-                        }
-                    }
-                    if ($list) {
-                        $children_fragment = "<dt>Specialties</dt>" . "<dd>" . $list . "</dd>";
-                    }
-                }
-                if ($style->nodeName == "category") {
-                    $list = null;
-                    foreach ($style->childNodes as $c) {
-                        if ($c->nodeType == XML_ELEMENT_NODE) {
-                            if ($list) { $list .= ", "; }
-                            $n = $this->childNode($c, 'name')->textContent;
-                            $list .= $n;
-                        }
-                    }
-                    if ($list) {
-                        $children_fragment = "<dt>Subcategories</dt>" . "<dd>" . $list . "</dd>";
-                    }
-                }
-                if ($style->nodeName == "class") {
-                    $list = null;
-                    foreach ($style->childNodes as $c) {
-                        if ($c->nodeType == XML_ELEMENT_NODE) {
-                            if ($list) { $list .= ", "; }
-                            $n = $this->childNode($c, 'name')->textContent;
-                            $list .= $n;
-                        }
-                    }
-                    if ($list) {
-                        $children_fragment = "<dt>Categories</dt>" . "<dd>" . $list . "</dd>";
-                    }
-                }
-
-                $details_fragment = "<dl>" . $class_fragment . $details_fragment . $children_fragment . "</dl>";
-                    
-                $content .= $this->formatString(
-                    '<p style="font-size: 70%;">Die folgenden Informationen entstammen einer XML-Form der BJCP Style Guidelines, die per <a href="https://github.com/meanphil/bjcp-guidelines-2015">GitHub</a> öffentlich verfügbar ist. Ich bereite diese Daten hier lediglich für meine persönlichen und nicht gewerblichen Zwecke auf, um sie leichter lesbar zu machen und Werte mit den in Deutschland gebräuchlicheren Einheiten darzustellen.</p>
-                     <h2>{name}</h2>
-                     {stats_fragment}
-                     {details_fragment}
-                     ',
-                    [
-                        'id' => ($style->localName == "specialty") ? ("Specialty") : $style->getAttribute('id'),
-                        'name' => $this->childNode($style, 'name')->textContent,
-                        'stats_fragment' => $stats_fragment,
-                        'details_fragment' => $details_fragment
-                    ]);
-            }
+        $xpath = $this->getStyleguideDoc();
+        $q = "//class[@type=" . '"' . $id_or_name . '"' . "] | //category[@id=" . '"' . $id_or_name . '"' . "] | //category[name=" . '"' . $id_or_name . '"' . "] | //subcategory[@id=" . '"' . $id_or_name . '"' . "] | //subcategory[name=" . '"' . $id_or_name . '"' . "] | //specialty[name=" . '"' . $id_or_name . '"' . "]";
+        $styles = $xpath->query($q);
+        if ( $styles->length < 1 ) {
+            $content = "(Unbekannter Bierstil " . $id_or_name . ")";
         }
-        $query = null;
-        $query = $original_query;
-        wp_reset_postdata();
+        foreach ($styles as $style) {
+
+            $class_fragment = "";
+            $node = $style;
+            $l0 = "/glossary/bjcp-";
+            if ($node->nodeName == "specialty") {
+                $l = strtolower(str_replace(" ", "-", $this->childNode($node, "name")->textContent));
+                $class_fragment = "<br/> > > > <a href=\"" . $l0 . $l . "\">Specialty \"" . $this->childNode($node, "name")->textContent . "\"</a>";
+                $node = $node->parentNode;
+            }
+            if ($node->nodeName == "subcategory") {
+                $l = strtolower($this->attr($node, "id"));
+                $class_fragment = "<br/> > > <a href=\"" . $l0 . $l . "\">Subcategory " . $this->attr($node, "id") . " (" . $this->childNode($node, "name")->textContent . ")</a>" . $class_fragment;
+                $node = $node->parentNode;
+            }
+            if ($node->nodeName == "category") {
+                $l = strtolower($this->attr($node, "id"));
+                $class_fragment = "<br/> > <a href=\"" . $l0 . $l . "\">Category " . $this->attr($node, "id") . " (" . $this->childNode($node, "name")->textContent . ")</a>" . $class_fragment;
+                $node = $node->parentNode;
+            }
+            if ($node->nodeName == "class") {
+                $l = $this->attr($node, "type");
+                $class_fragment = "<a href=\"" . $l0 . $l . "\">Class " . $this->attr($node, "type") . "</a>" . $class_fragment;
+                $node = $node->parentNode;
+            }
+            $class_fragment = "<dt>Classification</dt><dd>" . $class_fragment . "</dd>";
+
+            $stats_fragment = "";
+            $ibu = "unbestimmt";
+            $og = "unbestimmt";
+            $fg = "unbestimmt";
+            $srm = "unbestimmt";
+            $abv = "unbestimmt";
+            $stats = $this->childNode($style, 'stats');
+            $value = $this->childNode($this->childNode($stats, 'ibu'), 'low')->textContent / $this->sgToPlato($this->childNode($this->childNode($stats, 'og'), 'high')->textContent);
+            if ($value < 1.5) { $descr = "sehr malzig"; }
+            elseif ($value < 2.0) { $descr = "malzig"; }
+            elseif ($value < 2.2) { $descr = "ausgewogen"; }
+            elseif ($value < 3.0) { $descr = "herb"; }
+            elseif ($value < 6.0) { $descr = "sehr herb"; }
+            else { $descr = "Hopfenbombe"; }
+            $value = $this->childNode($this->childNode($stats, 'ibu'), 'high')->textContent / $this->sgToPlato($this->childNode($this->childNode($stats, 'og'), 'low')->textContent);
+            if ($value < 1.5) { $descr .= " - sehr malzig"; }
+            elseif ($value < 2.0) { $descr .= " - malzig"; }
+            elseif ($value < 2.2) { $descr .= " - ausgewogen"; }
+            elseif ($value < 3.0) { $descr .= " - herb"; }
+            elseif ($value < 6.0) { $descr .= " - sehr herb"; }
+            else { $descr .= " - Hopfenbombe"; }
+            if ($this->attr($this->childNode($stats, 'og'), 'flexible') == "false") {
+                $low = $this->childNode($this->childNode($stats, 'og'), 'low')->textContent;
+                $high = $this->childNode($this->childNode($stats, 'og'), 'high')->textContent;
+                $og = number_format($this->sgToPlato($low), 1, ",", ".") . " - " . number_format($this->sgToPlato($high), 1, ",", ".") . " °P</td>" . "<td>OG " . number_format($low, 3, ",", ".") . " - " . number_format($high, 3, ",", ".");
+                $stats_fragment .= $this->formatString("<tr><td>Stammwürze</td><td>{og}</td></tr>", [ "og" => $og ]);
+            }
+            if ($this->attr($this->childNode($stats, 'fg'), 'flexible') == "false") {
+                $low = $this->childNode($this->childNode($stats, 'fg'), 'low')->textContent;
+                $high = $this->childNode($this->childNode($stats, 'fg'), 'high')->textContent;
+                $fg = number_format($this->sgToPlato($low), 1, ",", ".") . " - " . number_format($this->sgToPlato($high), 1, ",", ".") . " GG%</td>" . "<td>FG " . number_format($low, 3, ",", ".") . " - " . number_format($high, 3, ",", ".");
+                $stats_fragment .= $this->formatString("<tr><td>Restextrakt</td><td>{fg}</td></tr>", [ "fg" => $fg ]);
+            }
+            if ($this->attr($this->childNode($stats, 'abv'), 'flexible') == "false") {
+                $low = $this->childNode($this->childNode($stats, 'abv'), 'low')->textContent;
+                $high = $this->childNode($this->childNode($stats, 'abv'), 'high')->textContent;
+                $abv = number_format($low, 1, ",", ".") . " - " . number_format($high, 1, ",", ".") . " %vol" . "</td>" . "<td>";
+                $stats_fragment .= $this->formatString("<tr><td>Alkohol</td><td>{abv}</td></tr>", [ "abv" => $abv ]);
+            }
+            if ($this->attr($this->childNode($stats, 'ibu'), 'flexible') == "false") {
+                $low = $this->childNode($this->childNode($stats, 'ibu'), 'low')->textContent;
+                $high = $this->childNode($this->childNode($stats, 'ibu'), 'high')->textContent;
+                $ibu = $low . " - " . $high . " IBU" . "</td>" . "<td>" . "(" . $descr . ")";
+                $stats_fragment .= $this->formatString("<tr><td>Bittere</td><td>{ibu}</td></tr>", [ "ibu" => $ibu ]);
+            }
+            if ($this->attr($this->childNode($stats, 'srm'), 'flexible') == "false") {
+                $low = $this->childNode($this->childNode($stats, 'srm'), 'low')->textContent;
+                $high = $this->childNode($this->childNode($stats, 'srm'), 'high')->textContent;
+                $srm = number_format($this->srmToEbc($low), 1, ",", ".") . " - " . number_format($this->srmToEbc($high), 1, ",", ".") . " EBC</td>" . "<td>" . number_format($low, 1, ",", ".") . " - " . number_format($high, 1, ",", ".") . " SRM";
+                $stats_fragment .= "";
+                $stats_fragment .= $this->formatString("<tr><td>Farbe</td><td>{srm}</td></tr>", [ "srm" => $srm ]);
+            }
+            if ($stats_fragment != "") {
+                $stats_fragment = "<table>" . $stats_fragment . "</table>";
+            }
+
+            $details_fragment = "";
+            $details = array('Notes', 'Aroma', 'Appearance', 'Flavor', 'Mouthfeel', 'Impression', 'Comments', 'History', 'Ingredients', 'Comparison', 'Examples', 'Tags');
+            foreach ($details as $detail) {
+                $value = $this->childNode($style, strtolower($detail))->textContent;
+                if ($value) {
+                    $details_fragment .= "<dt>" . $detail . "</dt><dd>" . $value . "</dd>";
+                }
+            }
+            
+            $specialties_fragment = "";
+            if ($this->childNode($style, 'entry_instructions')) {
+                $specialties_fragment = $this->formatString(
+                    '<dt>Specialty entry instructions</dt><dd>{instr}</dd>',
+                    [
+                        'instr' => $doc->saveXML($this->childNode($style, 'entry_instructions'))
+                    ]);
+                //$list = null;
+                //$specialties = $style->getElementsByTagName('specialty');
+                //foreach ($specialties as $specialty) {
+                //    if ($list) { $list .= ", "; }
+                //    $n = $specialty->getElementsByTagName('name')->item(0)->textContent;
+                //    // $list .= $specialty->getElementsByTagName('name')->textContent;
+                //    $list .= $n;
+                //}
+                //$specialties_fragment .= "<dt>Defined Specialties</dt><dd>" . $list . "</dd>";
+                $details_fragment .= $specialties_fragment;
+            }
+
+            $children_fragment = "";
+            if ($style->nodeName == "subcategory") {
+                $list = null;
+                foreach ($style->childNodes as $c) {
+                    if ($c->nodeType == XML_ELEMENT_NODE) {
+                        if ($list) { $list .= ", "; }
+                        $n = $this->childNode($c, 'name')->textContent;
+                        $list .= $n;
+                    }
+                }
+                if ($list) {
+                    $children_fragment = "<dt>Specialties</dt>" . "<dd>" . $list . "</dd>";
+                }
+            }
+            if ($style->nodeName == "category") {
+                $list = null;
+                foreach ($style->childNodes as $c) {
+                    if ($c->nodeType == XML_ELEMENT_NODE) {
+                        if ($list) { $list .= ", "; }
+                        $n = $this->childNode($c, 'name')->textContent;
+                        $list .= $n;
+                    }
+                }
+                if ($list) {
+                    $children_fragment = "<dt>Subcategories</dt>" . "<dd>" . $list . "</dd>";
+                }
+            }
+            if ($style->nodeName == "class") {
+                $list = null;
+                foreach ($style->childNodes as $c) {
+                    if ($c->nodeType == XML_ELEMENT_NODE) {
+                        if ($list) { $list .= ", "; }
+                        $n = $this->childNode($c, 'name')->textContent;
+                        $list .= $n;
+                    }
+                }
+                if ($list) {
+                    $children_fragment = "<dt>Categories</dt>" . "<dd>" . $list . "</dd>";
+                }
+            }
+
+            $details_fragment = "<dl>" . $class_fragment . $details_fragment . $children_fragment . "</dl>";
+                
+            $content .= $this->formatString(
+                '<p style="font-size: 70%;">Die folgenden Informationen entstammen einer XML-Form der BJCP Style Guidelines, die per <a href="https://github.com/meanphil/bjcp-guidelines-2015">GitHub</a> öffentlich verfügbar ist. Ich bereite diese Daten hier lediglich für meine persönlichen und nicht gewerblichen Zwecke auf, um sie leichter lesbar zu machen und Werte mit den in Deutschland gebräuchlicheren Einheiten darzustellen.</p>
+                 <h2>{name}</h2>
+                 {stats_fragment}
+                 {details_fragment}
+                 ',
+                [
+                    'id' => ($style->localName == "specialty") ? ("Specialty") : $style->getAttribute('id'),
+                    'name' => $this->childNode($style, 'name')->textContent,
+                    'stats_fragment' => $stats_fragment,
+                    'details_fragment' => $details_fragment
+                ]);
+        }
         return $content;
     }
 
@@ -919,6 +912,17 @@ class WP_Brewing {
     }
     
 
+
+    function formatNotes($notes) {
+        $s = "";
+        usort($notes, 'notes_cmp');
+        foreach ($notes as $note) {
+            $s .= "<p>" . $this->renderDateAndTime($note["time"]) . ": " . $note["note"]. "</p>";
+        }
+        return $s;
+    }
+
+    
 
     function statusWord($status) {
         switch($status) {
@@ -959,12 +963,95 @@ class WP_Brewing {
 
     
 
+    function renderUsage($usage, $time, $temp) {
+        // render a string for USAGE values or fermentation steps
+        switch ($usage) {
+        case USAGE_MASH: $result = "Maische"; break;
+        case USAGE_SPARGE: $result = "Nachguss"; break;
+        case USAGE_EXTRACT: $result = "Extract"; break;
+        case USAGE_STEEP: $result = "Steep"; break;
+        case USAGE_FIRSTWORT: $result = "Vorderwürze"; break;
+        case USAGE_BOIL: $result = ($time == null) ? "Kochen" : (($time == 0) ? " Kochende" : (number_format($time, 0, ",", ".") . " Minuten")); break;
+        case USAGE_FLAMEOUT: $result = "Kochende"; break;
+        case USAGE_WHIRLPOOL: $result = "Whirlpool"; break;
+        case USAGE_PRIMARY: $result = "Hauptgärung"; break;
+        case "Primary": $result = "Hauptgärung"; break;
+        case "Hauptgärung": $result = "Hauptgärung"; break;
+        case USAGE_SECONDARY: $result = "Nachgärung"; break;
+        case "Secondary": $result = "Nachgärung"; break;
+        case "Nachgärung": $result = "Nachgärung"; break;
+        case "Flaschengärung": $result = "Flaschengärung"; break;
+        case USAGE_TERTIARY: $result = "Dritte Gärung"; break;
+        case "Tertiary": $result = "Dritte Gärung"; break;
+        case USAGE_COLDCRASH: $result = "Cold Crash"; break;
+        case "Cold Crash": $result = "Cold Crash"; break;
+        case "Bottling": $result = "Abfüllung"; break;
+        case USAGE_KEG: $result = "Fass"; break;
+        case USAGE_BOTTLE: $result = "Flasche"; break;
+        case "Carbonation": $result = "Karbonisierung"; break;
+        case "Conditioning": $result = "Reifung"; break;
+        default: $result = "(" . $usage . ")";
+        }
+        $tt = "";
+        if ($temp != null) {
+            $tt .= $temp. " °C";
+        }
+        if ($time != null && $usage != USAGE_BOIL) {
+            if (strlen($tt) > 0) { $tt .= ", "; }
+            $tt .= $time;
+            if ($usage <= USAGE_WHIRLPOOL) {
+                $tt .= " Minuten";
+            } else {
+                $tt .= " Tage";
+            }
+        }
+        if (strlen($tt) > 0) {
+            $result = $this->formatString('<span data-cmtooltip="{tt}">{value}</span>',
+                                          [
+                                              'tt' => $tt,
+                                              'value' => $result
+                                          ]);
+        }
+        return $result;
+    }
+
+
+    
     function renderHopsAndAdjuncts($recipe, $phase, $excludePhases) {
 
         $content = "";
         
+        foreach ($recipe["adjuncts"] as $a) {
+            if ($a["usage"] < USAGE_PRIMARY) continue;
+            $rendered_name = $a["name"];
+            if (strlen($a["url"]) >= 1) {
+                $rendered_name = '<a href="' . $a["url"] . '">' . $rendered_name . '</a>';
+            }
+            $rendered_time = $this->renderUsage($a["usage"], $a["time"], $a["temp"]);
+            $p = $this->renderUsage($a["usage"], null, null);
+            $match = ((!$phase) || ($rendered_time == $phase)) && (! in_array($p, $excludePhases));
+            $unit = $a["unit"];
+            $amount = number_format($a["amount"], 0, ",", ".");
+            $dose = number_format($a["amount"] / $recipe["planned_batch_volume"], (($unit == "g" || $unit == "ml") ? 1 : 3), ",", ".") . " " . $unit . "/l";
+            if ($match) {
+                $content .= $this->formatString(
+                    '<tr>
+                           <td>{rendered_name}, {dose}</td>
+                           <td>{amount} {unit}</td>
+                           <td>{rendered_time}</td>
+                         </tr>',
+                    [
+                        'rendered_name' => $rendered_name,
+                        'dose' => $dose,
+                        'amount' => number_format($a["amount"], (($unit == "g" || $unit == "ml") ? 1 : 3), ",", "."),
+                        'unit' => $unit,
+                        'rendered_time' => $rendered_time
+                    ]);
+            }
+        }
+
         foreach ($recipe["hops"] as $h) {
-            if (($h["usage"] < USAGE_PRIMARY) || ($h["usage"] > USAGE_BOTTLE)) continue;
+            if ($h["usage"] < USAGE_PRIMARY) continue;
             $rendered_name = $h["name"];
             if (strlen($h["url"]) >= 1) {
                 $rendered_name = '<a href="' . $h["url"] . '">' . $rendered_name . '</a>';
@@ -983,15 +1070,9 @@ class WP_Brewing {
                 $rendered_alpha = ", " . number_format($h["alpha"], 1, ",", ".") . " %α";
             }
             */
-            $rendered_time = "";
-            switch ($h["usage"]) {
-            case USAGE_PRIMARY: $rendered_time = "Hauptgärung"; break;
-            case USAGE_SECONDARY: $rendered_time = "Nachgärung"; break;
-            case USAGE_KEG: $rendered_time = "Fass"; break;
-            case USAGE_BOTTLE: $rendered_time = "Flasche"; break;
-            default: $rendered_time = "(?)";
-            }
-            $match = ((!$phase) || ($rendered_time == $phase)) && (! in_array($rendered_time, $excludePhases));
+            $rendered_time = $this->renderUsage($h["usage"], $h["time"], $h["temp"]);
+            $p = $this->renderUsage($h["usage"], null, null);
+            $match = ((!$phase) || ($rendered_time == $phase) || ($p == $phase)) && (! in_array($p, $excludePhases));
             if ($h["time"] > 0) {
                 if ($h["time_unit"] == "day") {
                     $rendered_time = "Tag " . $h["time"];
@@ -1017,42 +1098,6 @@ class WP_Brewing {
                     ]);
             }
 		}
-
-        foreach ($recipe["adjuncts"] as $a) {
-            //if (($a["usage"] < USAGE_PRIMARY) || ($a["usage"] > USAGE_BOTTLE)) continue;
-            if ($h["usage"] != $usage) continue;
-            $rendered_name = $a["name"];
-            if (strlen($a["url"]) >= 1) {
-                $rendered_name = '<a href="' . $a["url"] . '">' . $rendered_name . '</a>';
-            }
-            $rendered_time = "";
-            switch ($a["usage"]) {
-            case USAGE_PRIMARY: $rendered_time = "Hauptgärung"; break;
-            case USAGE_SECONDARY: $rendered_time = "Nachgärung"; break;
-            case USAGE_KEG: $rendered_time = "Fass"; break;
-            case USAGE_BOTTLE: $rendered_time = "Flasche"; break;
-            default: $rendered_time = "(?)";
-            }
-            $match = ((!$phase) || ($rendered_time == $phase)) && (! in_array($rendered_time, $excludePhases));
-            $unit = $a["unit"];
-            $amount = number_format($a["amount"], 0, ",", ".");
-            $dose = number_format($a["amount"] / $recipe["planned_batch_volume"], 3, ",", ".") . " " . $unit . "/l";
-            if ($match) {
-                $content .= $this->formatString(
-                    '<tr>
-                           <td>{rendered_name}, {dose}</td>
-                           <td>{amount} {unit}</td>
-                           <td>{rendered_time}</td>
-                         </tr>',
-                    [
-                        'rendered_name' => $rendered_name,
-                        'dose' => $dose,
-                        'amount' => number_format($a["amount"], ($unit == "g" ? 0 : 3), ",", "."),
-                        'unit' => $unit,
-                        'rendered_time' => $rendered_time
-                    ]);
-            }
-        }
 
         return $content;
     }
@@ -1143,10 +1188,77 @@ class WP_Brewing {
 
                      table.wp-brewing-recipe td span[data-cmtooltip] { color: #d0ffd0 }
 
+                     table.wp-brewing-recipe tr#wp_brewing_taste_notes td p { padding-left:2em; text-align:left }
+                     table.wp-brewing-recipe tr#wp_brewing_notes td p { padding-left:2em; text-align:left }
+                     table.wp-brewing-recipe tr td button#wp_brewing_notes_button {
+			             margin:0; padding:0 2em;
+ 		             }
+                     table.wp-brewing-recipe tr td button#wp_brewing_notes_button span:before {
+                         content: " ";
+                         display: inline-block;
+                         top: 1.125rem;
+                         left: 0;
+                         width: 0.75rem;
+                         height: 0.625rem;
+                         transition: -webkit-transform 0.3s cubic-bezier(0.19, 1, 0.22, 1);
+                         transition: transform 0.3s cubic-bezier(0.19, 1, 0.22, 1);
+                         background-position: center;
+                         background-size: 0.75rem auto;
+                         background-repeat: no-repeat;
+                         background-image: url("data:image/svg+xml,%3Csvg xmlns=%27http://www.w3.org/2000/svg%27 viewBox=%270 0 320 512%27%3E%3Cpath fill=%27%23003f57%27 d=%27M143 352.3L7 216.3c-9.4-9.4-9.4-24.6 0-33.9l22.6-22.6c9.4-9.4 24.6-9.4 33.9 0l96.4 96.4 96.4-96.4c9.4-9.4 24.6-9.4 33.9 0l22.6 22.6c9.4 9.4 9.4 24.6 0 33.9l-136 136c-9.2 9.4-24.4 9.4-33.8 0z%27/%3E%3C/svg%3E")
+                     }
+                     table.wp-brewing-recipe tr td button#wp_brewing_notes_button.closed > span:before {
+			             -webkit-transform: rotate(-90deg);
+                         transform: rotate(-90deg);
+		             }
+                     table.wp-brewing-recipe tr td button#wp_brewing_notes_button.open > span:before {
+			             -webkit-transform: rotate(0deg);
+                         transform: rotate(0deg);
+		             }
+                     table.wp-brewing-recipe tr td span.star:before {
+                         filter: invert(94%) sepia(39%) saturate(4196%) hue-rotate(320deg) brightness(94%) contrast(92%);
+                         content: " ";
+                         display: inline-block;
+                         top: 1.125rem;
+                         left: 0;
+                         width: 0.75rem;
+                         height: 0.625rem;
+                         background-position: center;
+                         background-size: 0.75rem auto;
+                         background-repeat: no-repeat;
+                         background-image: url("data:image/svg+xml,%3Csvg xmlns=%27http://www.w3.org/2000/svg%27 viewBox=%270 0 512 512%27%3E%3Cpath d=%27M256 372.686L380.83 448l-33.021-142.066L458 210.409l-145.267-12.475L256 64l-56.743 133.934L54 210.409l110.192 95.525L131.161 448z%27/%3E%3C/svg%3E")
+                     }
+                     table.wp-brewing-recipe tr td span.star-half:before {
+                         filter: invert(94%) sepia(39%) saturate(4196%) hue-rotate(320deg) brightness(94%) contrast(92%);
+                         content: " ";
+                         display: inline-block;
+                         top: 1.125rem;
+                         left: 0;
+                         width: 0.75rem;
+                         height: 0.625rem;
+                         background-position: center;
+                         background-size: 0.75rem auto;
+                         background-repeat: no-repeat;
+                         background-image: url("data:image/svg+xml,%3Csvg xmlns=%27http://www.w3.org/2000/svg%27 viewBox=%270 0 512 512%27%3E%3Cpath d=%27M458 210.409l-145.267-12.476L256 64l-56.743 133.934L54 210.409l110.192 95.524L131.161 448 256 372.686 380.83 448l-33.021-142.066L458 210.409zM272.531 345.287L256 335.313l-.002-189.277 27.27 64.379 7.52 17.751 19.208 1.65 69.846 5.998-52.993 45.939-14.576 12.636 4.367 18.788 15.875 68.299-59.984-36.189z%27/%3E%3C/svg%3E")
+                     }
+                     table.wp-brewing-recipe tr td span.star-outline:before {
+                         filter: invert(94%) sepia(39%) saturate(4196%) hue-rotate(320deg) brightness(94%) contrast(92%);
+                         content: " ";
+                         display: inline-block;
+                         top: 1.125rem;
+                         left: 0;
+                         width: 0.75rem;
+                         height: 0.625rem;
+                         background-position: center;
+                         background-size: 0.75rem auto;
+                         background-repeat: no-repeat;
+                         background-image: url("data:image/svg+xml,%3Csvg xmlns=%27http://www.w3.org/2000/svg%27 viewBox=%270 0 512 512%27%3E%3Cpath d=%27M458 210.409l-145.267-12.476L256 64l-56.743 133.934L54 210.409l110.192 95.524L131.161 448 256 372.686 380.83 448l-33.021-142.066L458 210.409zM272.531 345.286L256 335.312l-16.53 9.973-59.988 36.191 15.879-68.296 4.369-18.79-14.577-12.637-52.994-45.939 69.836-5.998 19.206-1.65 7.521-17.75 27.276-64.381 27.27 64.379 7.52 17.751 19.208 1.65 69.846 5.998-52.993 45.939-14.576 12.636 4.367 18.788 15.875 68.299-59.984-36.189z%27/%3E%3C/svg%3E")
+                     }
+		     
                      @media only screen and (max-width: 800px) {
-                       table.wp-brewing-recipe { font-size:9pt }
-                       table.wp-brewing-recipe tr th+th          { width:16% }
-                       table.wp-brewing-recipe tr td+td          { width:16% }
+                         table.wp-brewing-recipe { font-size:9pt }
+                         table.wp-brewing-recipe tr th+th          { width:16% }
+                         table.wp-brewing-recipe tr td+td          { width:16% }
                      }
 
                    </style>
@@ -1436,10 +1548,34 @@ class WP_Brewing {
                         'song' => $recipe["song_url"] ? '<a href="' . $recipe["song_url"] . '">' . $recipe["song"] . "</a>" : $recipe["song"]
                     ]);
             }
-                $rendered_name = $h["name"];
-                if (strlen($h["url"]) >= 1) {
-                    $rendered_name = '<a href="' . $h["url"] . '">' . $rendered_name . '</a>';
+
+            if ($recipe["taste_rating"]) {
+                $stars = floor($recipe["taste_rating"] / 2) / 10;
+                $full = floor($stars);
+                $half = ((($stars-$full) >= 0.5) || ($stars <= 0.5)) ? 1 : 0;
+                $rating = number_format($stars, 1, ",", ".") . " ";
+                for ($i = 0; $i < $full; $i++) {
+                    $rating .= "<span class='star'> </span>";
                 }
+                for ($i = 0; $i < $half; $i++) {
+                    $rating .= "<span class='star-half'> </span>";
+                }
+                for ($i = $full + $half; $i < 5; $i++) {
+                    $rating .= "<span class='star-outline'> </span>";
+                }
+                
+                $content .= $this->formatString(
+                    '<tr>
+                       <td>Tasting / Bewertung</td>
+                       <td colspan="2">{rating}</td>
+                     </tr>',
+                    [
+                        'rating' => $rating
+                    ]);
+                if ($recipe["taste_rating"]) {
+                    $content .= '<tr id="wp_brewing_taste_notes"><td colspan="3"><p>' . $recipe["taste_notes"] . '</p></td></tr>';
+                }
+            }
 
             // mash (fermentables, hops, adjuncts)
             if ($recipe["fermentables"]) {
@@ -1454,7 +1590,7 @@ class WP_Brewing {
                        <th colspan="2"><span data-cmtooltip="{tt}">{grainsum} kg</span></th>
                      </tr>',
                     [
-                        'wasser' => ($x || $recipe["planned_residual_alkalinity"]) ? "Wasser / " : "",
+                        'wasser' => ($x || ($recipe["planned_residual_alkalinity"] || ($recipe["chloride"] and $recipe["sulfate"]))) ? "Wasser / " : "",
                         'grainsum' => number_format($grainsum, 3, ",", "."),
                         'tt' => number_format($this->kgToLb($grainsum), 3, ".", ",") . " lb"
                     ]);
@@ -1462,7 +1598,7 @@ class WP_Brewing {
                 if ($recipe["planned_residual_alkalinity"]) {
                     $content .= $this->formatString(
                         '<tr>
-                           <td>geplante Brauwasser-Restalkalität</td>
+                           <td>Brauwasser-Restalkalität</td>
                            <td colspan="2"><span data-cmtooltip="{tt}">{value} °dH</span></td>
                          </tr>',
                         [
@@ -1471,35 +1607,29 @@ class WP_Brewing {
                         ]);
                 }
 
-                /*
-                foreach ($recipe["adjuncts"] as $a) {
-                    if ($a["usage"] != USAGE_MASH) continue;
-                    if (! $a["water_adj"]) continue;
-                    $rendered_name = $a["name"];
-                    if (strlen($a["url"]) >= 1) {
-                        $rendered_name = '<a href="' . $a["url"] . '">' . $rendered_name . '</a>';
-                    }
-                    $unit = $a["unit"];
-                    if ($unit == "kg") {
-                        $dose = number_format($a["amount"] / $recipe["planned_batch_volume"] * 1000, 0, ",", ".") . " " . "g" . "/l";
+                if ($recipe["chloride"] and $recipe["sulfate"]) {
+                    $cs = $recipe["chloride"] / $recipe["sulfate"];
+                    if ($cs == 1) {
+                        $value = "1 : 1";
+                    } elseif ($cs < 1) {
+                        $value = "1 : " . number_format(1.0 / $cs, 1, ",", ".");
                     } else {
-                        $dose = number_format($a["amount"] / $recipe["planned_batch_volume"], 3, ",", ".") . " " . $unit . "/l";
+                        $value = number_format($cs, 1, ",", ".") . " : 1";
                     }
-        			$content .= $this->formatString(
+                    if ($recipe["chloride"] and $recipe["sulfate"]) {
+                        $tt = "Chlorid " . number_format($recipe["chloride"], 0, ",", ".") . " ppm,<br/>Sulfat " . number_format($recipe["sulfate"], 0, ",", ".") . " ppm";
+                    }
+                    $content .= $this->formatString(
                         '<tr>
-                           <td>{rendered_name}</td>
-                           <td>{dose}</td>
-                           <td style="text-align:right"><span data-cmtooltip="{tt_amount}">{amount} {unit}</span></td>
+                           <td>Chlorid-Sulfat-Verhältnis</td>
+                           <td colspan="2"><span data-cmtooltip="{tt}">{value}</span></td>
                          </tr>',
                         [
-                            'rendered_name' => $rendered_name,
-                            'dose' => $dose,
-                            'amount' => number_format($a["amount"], ($unit == "g" ? 1 : 3), ",", "."),
-                            'unit' => $unit,
-                            'tt_amount' => ($unit == "g") ? number_format($this->gToOz($a["amount"]), 2, ",", ".") . " oz" : ""
+                            'value' => $value,
+                            'tt' => $tt
                         ]);
                 }
-                */
+
                 foreach ($recipe["fermentables"] as $f) {
                     if ($f["usage"] != USAGE_MASH) continue;
                     $rendered_name = $f["name"];
@@ -1531,7 +1661,7 @@ class WP_Brewing {
                     if ($unit == "kg") {
                         $dose = number_format($a["amount"] / $recipe["planned_batch_volume"] * 1000, 0, ",", ".") . " " . "g" . "/l";
                     } else {
-                        $dose = number_format($a["amount"] / $recipe["planned_batch_volume"], 3, ",", ".") . " " . $unit . "/l";
+                        $dose = number_format($a["amount"] / $recipe["planned_batch_volume"], (($unit == "g" || $unit == "ml") ? 1 : 3), ",", ".") . " " . $unit . "/l";
                     }
         			$content .= $this->formatString(
                         '<tr>
@@ -1639,36 +1769,6 @@ class WP_Brewing {
                 }
             }
 
-            /*
-            foreach ($recipe["adjuncts"] as $a) {
-                if ($a["usage"] != USAGE_SPARGE) continue;
-                if (! $a["water_adj"]) continue;
-                $rendered_name = $a["name"];
-                if (strlen($a["url"]) >= 1) {
-                    $rendered_name = '<a href="' . $a["url"] . '">' . $rendered_name . '</a>';
-                }
-                $unit = $a["unit"];
-                if ($unit == "kg") {
-                    $dose = number_format($a["amount"] / $recipe["planned_batch_volume"] * 1000, 0, ",", ".") . " " . "g" . "/l";
-                } else {
-                    $dose = number_format($a["amount"] / $recipe["planned_batch_volume"], 2, ",", ".") . " " . $unit . "/l";
-                }
-    			$content .= $this->formatString(
-                    '<tr>
-                       <td>{rendered_name}</td>
-                       <td>{dose}</td>
-                       <td style="text-align:right"><span data-cmtooltip="{tt_amount}">{amount} {unit}</span></td>
-                     </tr>',
-                    [
-                        'rendered_name' => $rendered_name,
-                        'dose' => $dose,
-                        'amount' => number_format($a["amount"], ($unit == "g" ? 1 : 2), ",", "."),
-                        'unit' => $unit,
-                        'tt_amount' => (($unit == "g") || ($unit == "ml")) ? number_format($this->gToOz($a["amount"]), 2, ",", ".") . " oz" : ""
-                    ]);
-            }
-            */
-            
             if ($recipe["boil_time"] > 0) {
         		$content .= $this->formatString(
                     '<tr>
@@ -1698,14 +1798,7 @@ class WP_Brewing {
                         $rendered_alpha = ", " . number_format($h["alpha"], 1, ",", ".") . " %α";
                     }
                     $rendered_time = "";
-                    switch ($h["usage"]) {
-                    case USAGE_MASH: $rendered_time = "Maische"; break;
-                    case USAGE_FIRSTWORT: $rendered_time = "Vorderwürze"; break;
-                    case USAGE_BOIL: $rendered_time = ($h["time"] == 0) ? " Kochende" : (number_format($h["time"], 0, ",", ".") . " Minuten"); break;
-                    case USAGE_FLAMEOUT: $rendered_time = "Kochende"; break;
-                    case USAGE_WHIRLPOOL: $rendered_time = "Whirlpool"; break;
-                    default: $rendered_time = "(?)";
-                    }
+                    $rendered_time = $this->renderUsage($h["usage"], $h["time"], $h["temp"]);
                     $amount = number_format($h["amount"], 0, ",", ".");
                     $tt_amount = number_format($this->gToOz($h["amount"]), 2, ",", ".") . " oz";
                     $dose = number_format($h["amount"] / $recipe["planned_batch_volume"], 1, ",", ".") . " g/l";
@@ -1736,14 +1829,7 @@ class WP_Brewing {
                         $rendered_name = '<a href="' . $a["url"] . '">' . $rendered_name . '</a>';
                     }
                     $rendered_time = "";
-                    switch ($a["usage"]) {
-                    case USAGE_MASH: $rendered_time = "Maische"; break;
-                    case USAGE_FIRSTWORT: $rendered_time = "Vorderwürze"; break;
-                    case USAGE_BOIL: $rendered_time = (($a["time"] == 0) ? "Kochende" : (number_format($a["time"], 0, ",", ".") . " Minuten")); break;
-                    case USAGE_FLAMEOUT: $rendered_time = "Kochende"; break;
-                    case USAGE_WHIRLPOOL: $rendered_time = "Whirlpool"; break;
-                    default: $rendered_time = "(?)";
-                    }
+                    $rendered_time = $this->renderUsage($a["usage"], $a["time"], $a["temp"]);
                     $unit = $a["unit"];
                     $amount = number_format($a["amount"], 0, ",", ".");
                     $dose = number_format($a["amount"] / $recipe["planned_batch_volume"], 1, ",", ".") . " " . $unit . "/l";
@@ -1769,14 +1855,7 @@ class WP_Brewing {
                         $rendered_name = '<a href="' . $f["url"] . '">' . $rendered_name . '</a>';
                     }
                     $rendered_time = "";
-                    switch ($f["usage"]) {
-                    case USAGE_MASH: $rendered_time = "Maische"; break;
-                    case USAGE_FIRSTWORT: $rendered_time = "Vorderwürze"; break;
-                    case USAGE_BOIL: $rendered_time = (($f["time"] == 0) ? "Kochende" : (number_format($f["time"], 0, ",", ".") . " Minuten")); break;
-                    case USAGE_FLAMEOUT: $rendered_time = "Kochende"; break;
-                    case USAGE_WHIRLPOOL: $rendered_time = "Whirlpool"; break;
-                    default: $rendered_time = "(?)";
-                    }
+                    $rendered_time = $this->renderUsage($f["usage"], $f["time"], $f["temp"]);
                     $unit = "g";
                     $amount = $f["amount"] * 1000;
                     $dose = number_format($amount / $recipe["planned_batch_volume"], 1, ",", ".") . " " . $unit . "/l";
@@ -1876,16 +1955,14 @@ class WP_Brewing {
             }
 
             if ((count($recipe["yeasts"]) >= 1) || (count($recipe["fermentation_steps"]) >= 1)) {
-                if ($recipe["fermentation_steps"][0]["days"]) {
-                    $state = $recipe["fermentation_steps"][0]["days"] . " Tage";
-                }
-                if ((!$days) && ($recipe["fermentation_steps"][0]["planned_days"])) {
-                    $state = $recipe["fermentation_steps"][0]["planned_days"] . " Tage";
-                }
                 if ((($recipe["status"] >= STATUS_FERMENTATION) && ($recipe["status"] < STATUS_FERMENTATION_SECONDARY)) && ($recipe["ferm_start_date"])) {
                     $d = date_diff(date_create($recipe["ferm_start_date"]), date_create());
                     $days = $d->format("%a");
                     $state = "bisher " . $days . " Tage";
+                } elseif ($recipe["fermentation_steps"][0]["days"]) {
+                    $state = $recipe["fermentation_steps"][0]["days"] . " Tage";
+                } elseif ($recipe["fermentation_steps"][0]["planned_days"]) {
+                    $state = $recipe["fermentation_steps"][0]["planned_days"] . " Tage";
                 } else {
                     $state = "";
                 }
@@ -2016,15 +2093,16 @@ class WP_Brewing {
                            <td><span data-cmtooltip="{tt_days}">{days}</span></t>
                          </tr>',
                         [
-                            'name' => $f["name"],
+                            'name' => $this->renderUsage($f["name"], $f["days"], $f["temp"]),
                             'days' => $days,
                             'temp' => $temp,
                             'tt_days' => $tt_days,
                             'tt_temp' => $tt_temp
                         ]);
 
-                    $content .= $this->renderHopsAndAdjuncts($recipe, $f["name"], array());
-                    array_push($excludePhases, $f["name"]);
+                    $phase = $this->renderUsage($f["name"], null, null);
+                    $content .= $this->renderHopsAndAdjuncts($recipe, $phase, $excludePhases);
+                    array_push($excludePhases, $phase);
                 }
             }
 
@@ -2053,7 +2131,6 @@ class WP_Brewing {
                     ]);
             }
 
-            // YYY
             global $query;
             $original_query = $query;
             $query = null;
@@ -2179,6 +2256,7 @@ class WP_Brewing {
                  {tr_type}
                  {tr_software}
                  {tr_equipment}
+                 {tr_logbuch}
                  <tr><td>Letztes Update</td><td colspan="2">{updated_at}</td></tr>
                </table',
                 [
@@ -2187,6 +2265,22 @@ class WP_Brewing {
                     'tr_type' => $recipe["type"] ? '<tr><td>Brauart</td><td colspan="2">' . $this->recipeTypeWord($recipe["type"]) . "</td></tr>" : "",
                     'tr_software' => $recipe["source"] ? '<tr><td>Software / Datenquelle</td><td colspan="2">' . $recipe["source"] . "</td></tr>" : "",
                     'tr_equipment' => $recipe["equipment"] ? '<tr><td>Equipment</td><td colspan="2">' . $recipe["equipment"] . "</td></tr>" : "",
+                    'tr_logbuch' => count($recipe["batch_notes"]) ? '<tr><td>Lobguch</td><td colspan="2"><button id="wp_brewing_notes_button" class="closed" onclick="wp_brewing_toggle_notes()"><span> </span></button></td></tr><script>
+function wp_brewing_toggle_notes() {
+  var notes = document.getElementById("wp_brewing_notes");
+  var button = document.getElementById("wp_brewing_notes_button");
+  if (notes.style.display === "none") {
+    notes.style.display = "table-row";
+    button.classList.add("open");
+    button.classList.remove("closed");
+  } else {
+    notes.style.display = "none";
+    button.classList.remove("open");
+    button.classList.add("closed");
+  }
+}
+</script><tr id="wp_brewing_notes" style="transition: max-height 400ms ease; display:none"><td colspan="3">' . $this->formatNotes($recipe["batch_notes"]) . '</td></tr>' : "",
+                    
                     'updated_at' => $this->renderDate($recipe["updated_at"])
                 ]);
         }
@@ -2196,7 +2290,7 @@ class WP_Brewing {
 
 
     
-    function renderRecipeTable($mode, $year, $source, $type, $tag, $title) {
+    function renderRecipeTable($mode, $year, $source, $type, $tag, $title, $reverse) {
         
         $content = "";
         global $query;
@@ -2304,6 +2398,10 @@ class WP_Brewing {
                 $where = "";
             }
             
+            if ($title) {
+                $where .= " " . ((strlen($where) > 0) ? "AND" : "WHERE") . " Sudname LIKE '" . str_replace('*', '%', $title) . "'";
+            }
+            
             $location = $this->getKbhLocation();
 
         	$db = new SQLite3($location);
@@ -2399,18 +2497,19 @@ class WP_Brewing {
                         $status = $batch ? (($batch["status"] == "Planning") ? STATUS_PREPAIRING : (($batch["status"] == "Archived") ? STATUS_EMPTIED : (($batch["status"] == "Completed") ? STATUS_COMPLETE : (($batch["status"] == "Fermenting") ? STATUS_FERMENTATION : (($batch["status"] == "Conditioning") ? STATUS_CONDITIONING : STATUS_BREWDAY))))) : STATUS_RECIPE;
                         $status = $this->statusWord($status);
                         $date = substr($this->secsToDate($batch["brewDate"] / 1000), 0, 10);
-                        array_push($lines, [
-                            'name' => $batch["name"],
-                            'href' => $href,
-                            'status' => $status,
-                            'date' => $date,
-                            'steuerklasse' => $steuerklasse,
-                            'steuersatz' => $steuersatz,
-                            'steuerbetrag' => $litersatz,
-                            'versteuerung' => $mengehl,
-                            'betrag' => $betrag
-                        ]);
-
+                        if ((!$year) || ($year == substr($date, 0, 4))) {
+                            array_push($lines, [
+                                'name' => $batch["name"],
+                                'href' => $href,
+                                'status' => $status,
+                                'date' => $date,
+                                'steuerklasse' => $steuerklasse,
+                                'steuersatz' => $steuersatz,
+                                'steuerbetrag' => $litersatz,
+                                'versteuerung' => $mengehl,
+                                'betrag' => $betrag
+                            ]);
+                        }
                     }
                 }
                 $query = null;
@@ -2474,27 +2573,31 @@ class WP_Brewing {
             }
         }
 */
-            
+
         usort($lines, 'recipe_lines_cmp');
+        if ($reverse != null) {
+            $lines = array_reverse($lines);
+        }
+        
         $gesamt = 0;
         $gesamtbetrag = 0;
+        $steuermenge = 0;
         $n = 0;
         foreach ($lines as $line) {
 
+            $addline = "";
+            
             if ($line["steuerklasse"] >= 1) {
                 $gesamt += $line["versteuerung"];
-            }
-
-            if ($gesamt > 2.0) {
-                $n += 1;
-                $gesamtbetrag += $line["betrag"];
-                $steuermenge += $line["versteuerung"];
+                if ($gesamt > 2.0) {
+                    $n += 1;
+                    $gesamtbetrag += $line["betrag"];
+                    $steuermenge += $line["versteuerung"];
+                }
             }
             
-            // if ($line["steuerklasse"] >= 1.0) {
-
             if ($mode == "steuer") {
-                $line = $this->formatString('
+                $addline = $this->formatString('
             <tr>
               <td><a href="{href}">{Braudatum}</a></td>
               <td>{Stammwuerze}</td>
@@ -2508,34 +2611,35 @@ class WP_Brewing {
                                                 'dash' => (($n == 0) || ($line["betrag"] == 0)) ? " class='dash'" : "",
                                                 'href' => $line["href"],
                                                 'Sudname' => $line["name"],
-                                                'Braudatum' => $line["date"],
+                                                'Braudatum' => $line["date"] ,
                                                 'Stammwuerze' => $line["steuerklasse"],
                                                 'Steuersatz' => number_format($line["steuersatz"], 4, ",", "."),
                                                 'Litersatz' => number_format($line["steuerbetrag"], 2, ",", "."),
                                                 'Menge' => number_format($line["versteuerung"], 2, ",", "."),
                                                 'MengeGesamt' => number_format($gesamt, 2, ",", "."),
-                                                'Betrag' => number_format($line["betrag"], 2, ",", "."),
+                                                'Betrag' => number_format($line["betrag"], 2, ",", ".")
                                             ]);
             }
-            if ($mode == "xml") {
-                $line = $this->formatString('
+            if (($mode == "xml") && ($gesamt > 2.0) && ($line["steuerklasse"] >= 1)) {
+                $addline = $this->formatString('
                 <element id="steuerklasse{n}">{plato}</element>
-                <element id="steuersatz{n}">{steuersatz}</element>
+                <element id="Steuersatz{n}">{Steuersatz}</element> // Note: capital S
                 <element id="steuerbetrag{nhack}">{steuerbetrag}</element>
                 <element id="versteuerung{n}">{versteuerung}</element>
                 <element id="betrag{n}">{betrag}</element>',
                                             [
                                                 'n' => $n,
-                                                'nhack' => $n <= 1 ? $n : $n + 20,
+                                                'nhack' => ($n <= 1) ? $n : $n + 20,
                                                 'plato' => $line["steuerklasse"],
                                                 'steuersatz' => number_format($line["steuersatz"], 4, ".", ","),
+                                                'Steuersatz' => number_format($line["steuersatz"], 4, ",", "."),
                                                 'steuerbetrag' => number_format($line["steuerbetrag"], 2, ".", ","),
                                                 'versteuerung' => number_format($line["versteuerung"], 2, ".", ","),
-                                                'betrag' => number_format($line["betrag"], 2, ".", ","),
+                                                'betrag' => number_format($line["betrag"], 2, ".", ",")
                                             ]);
             }
             if (($mode != "xml") && ($mode != "steuer")) {
-                $line = $this->formatString('
+                $addline = $this->formatString('
                 <tr>
                   <td><a href="{href}">{name}</a></td>
                   <td>{status}</td>
@@ -2549,7 +2653,7 @@ class WP_Brewing {
                                             ]);
             }
 
-            $content .= $line;
+            $content .= $addline;
         }
         
         if ($mode == "steuer") {
@@ -2573,13 +2677,18 @@ class WP_Brewing {
     </table>';
         } else {
             $content .= $this->formatString('
-            <element id="betrag23">{summe}</element>
             <element id="euroInBuchstaben">{wort}</element>
+            <element id="ort_datum_unterschrift">{ort}, {datum}</element>
+            <element id="k14">false</element>
+            <element id="k15">false</element>
+            <element id="betrag23">{summe}</element>
         </datarow>
     </instance>
 </xml-data>', [
     'summe' => number_format($gesamtbetrag, 2, ".", ","),
-    'wort' => "--- " . $this->zahlWort(floor($gesamtbetrag)) . " ---"
+    'wort' => "--- " . $this->zahlWort(floor($gesamtbetrag)) . " ---",
+    'ort' => "Braunschweig",
+    'datum' => date("d.m.Y")
 ]);
         }
         $db->close();
@@ -3381,6 +3490,7 @@ class WP_Brewing {
                 "alpha" => $h["alpha"],
                 "time" => $h["time"],
                 "time_unit" => $time_unit,
+                "temp" => $h["temp"],
                 "amount" => $h["amount"],
             ]);
         }
@@ -3389,11 +3499,12 @@ class WP_Brewing {
         foreach ($bf_recipe["miscs"] as $m) {
             array_push($recipe["adjuncts"], [ 
                 "name" => $m["name"],
-                "usage" => ($m["use"] == "First Wort") ? USAGE_FIRSTWORT : (($m["use"] == "Boil") ? (($m["time"] > 0) ? USAGE_BOIL : USAGE_FLAMEOUT) : (($m["use"] == "Mash") ? USAGE_MASH : (($m["use"] == "Flameout") ? USAGE_FLAMEOUT : (($m["use"] == "Primary") ? USAGE_PRIMARY : (($m["use"] == "Secondary") ? USAGE_SECONDARY : (($m["use"] == "Sparge") ? USAGE_SPARGE : USAGE_BOTTLE)))))),
+                "usage" => ($m["use"] == "First Wort") ? USAGE_FIRSTWORT : (($m["use"] == "Boil") ? (($m["time"] > 0) ? USAGE_BOIL : USAGE_FLAMEOUT) : (($m["use"] == "Mash") ? USAGE_MASH : (($m["use"] == "Flameout") ? USAGE_FLAMEOUT : (($m["use"] == "Primary") ? USAGE_PRIMARY : (($m["use"] == "Secondary") ? USAGE_SECONDARY : (($m["use"] == "Sparge") ? USAGE_SPARGE : (($m["use"] == "Bottling") ? USAGE_COLDCRASH : USAGE_BOTTLE))))))),
                 "type" => $m["type"],
                 "time" => $m["time"],
                 "amount" => $m["amount"],
                 "unit" => $m["unit"],
+                "temp" => $m["temp"],
                 "water_adj" => $m["waterAdjustment"],
             ]);
         }
@@ -3412,6 +3523,44 @@ class WP_Brewing {
                 "amount" => $y["amount"],
             ]);
         }
+
+        // fermentation steps
+        foreach ($bf_recipe["fermentation"]["steps"] as $f) {
+            if (($f["type"] == "Conditioning") || ($f["type"] == "Carbonation")) continue;
+            array_push($recipe["fermentation_steps"], [ 
+                "name" => $f["type"],
+                "planned_temp" => $f["stepTemp"], // °C
+                "planned_days" => $f["stepTime"] // days
+            ]);
+        }
+
+        $t = round((($bf_batch["bottlingDate"] / 1000) - ($bf_batch["fermentationStartDate"] / 1000)) / 86400);
+        if (($t >= 1) && ($t <= 30)) {
+            if (count($recipe["fermentation_steps"]) >= 1) {
+                $recipe["fermentation_steps"][0]["days"] = $t;
+            }
+        }
+
+        $recipe["batch_notes"] = array();
+        foreach ($bf_batch["notes"] as $note) {
+            array_push($recipe["batch_notes"], [
+                "time" => $this->secsToDate($note["timestamp"] / 1000),
+                "note" => $note["type"] == "statusChanged" ? "Neuer Status: " . $note["status"] : $note["note"]
+            ]);
+        }
+
+        if ($bf_batch["tasteRating"]) {
+            $recipe["taste_rating"] = $bf_batch["tasteRating"];
+            if ($bf_batch["tasteNotes"]) {
+                $recipe["taste_notes"] = $bf_batch["tasteNotes"];
+            }
+        }
+                
+        if ($bf_recipe["water"]["target"]["chloride"] and $bf_recipe["water"]["target"]["sulfate"]) {
+            $recipe["chloride"] = $bf_recipe["water"]["target"]["chloride"];
+            $recipe["sulfate"] = $bf_recipe["water"]["target"]["sulfate"];
+        }
+        
         return $recipe;
     }
     
@@ -3439,6 +3588,23 @@ class WP_Brewing {
 
 
 
+    function send_2075($year) {
+
+        $filename = "Formular-2075-" . $year;
+
+        header("Expires: 0");
+        header("Cache-Control: no-cache, no-store, must-revalidate");
+        header("Pragma: no-cache");	
+        header("Content-type: application/xml");
+        header("Content-Disposition:attachment; filename={$filename}");
+
+        echo $this->renderRecipeTable("xml", $year, null, null, null, null, null);
+
+        exit();
+    }
+    
+
+    
     function kbh_recipe_shortcode($atts) {
 
         $att = shortcode_atts (array(
@@ -3487,12 +3653,11 @@ class WP_Brewing {
     		'source' => null,
     		'type' => null,
     		'tag' => null,
-    		'title' => null
+    		'title' => null,
+    		'reverse' => null
         ), $atts);
 
-        #$recipes = get_recipes($att["year"], $att["source"], $att["type"], $att["tag"], $att["title"]);
-        
-        return $this->renderRecipeTable($att["mode"], $att["year"], $att["source"], $att["type"], $att["tag"], $att["title"]);
+        return $this->renderRecipeTable($att["mode"], $att["year"], $att["source"], $att["type"], $att["tag"], $att["title"], $att["reverse"]);
     }
 
 
@@ -3504,7 +3669,7 @@ class WP_Brewing {
             'year' => null
         ), $atts);
 
-        return $this->renderRecipeTable($att["mode"], $att["year"], "kbh", null, null, null);
+        return $this->renderRecipeTable($att["mode"], $att["year"], "kbh", null, null, null, null);
     }
 
 
@@ -3519,7 +3684,7 @@ class WP_Brewing {
         header("Content-type: application/xml");
         header("Content-Disposition:attachment; filename={$filename}");
 
-        echo $this->renderRecipeTable("xml", $year, "kbh", null, null, null);
+        echo $this->renderRecipeTable("xml", $year, "kbh", null, null, null, null);
 
         exit();
     }
@@ -3536,7 +3701,7 @@ class WP_Brewing {
             'title' => null
         ), $atts);
 
-        return $this->renderRecipeTable($att["mode"], $att["year"], "bf", $att["type"], $att["tag"], $att["title"]);
+        return $this->renderRecipeTable($att["mode"], $att["year"], "bf", $att["type"], $att["tag"], $att["title"], null);
     }
 
 
