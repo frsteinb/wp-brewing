@@ -1003,7 +1003,7 @@ class WP_Brewing {
         if ($time != null && $usage != USAGE_BOIL) {
             if (strlen($tt) > 0) { $tt .= ", "; }
             $tt .= $time;
-            if ($usage <= USAGE_WHIRLPOOL) {
+            if (($usage <= USAGE_WHIRLPOOL) && ($result != "Hauptgärung")) {
                 $tt .= " Minuten";
             } else {
                 $tt .= " Tage";
@@ -1015,7 +1015,7 @@ class WP_Brewing {
                                               'tt' => $tt,
                                               'value' => $result
                                           ]);
-        }
+	}
         return $result;
     }
 
@@ -1298,6 +1298,7 @@ class WP_Brewing {
             }
 
             if ($recipe["bjcp2015_style_id"]) {
+	        $sid = preg_replace('/^0/', '', $recipe["bjcp2015_style_id"]);
                 $content .= $this->formatString(
                     '<tr>
                        <td>Stil gemäß BJCP Guidelines (2015)</td>
@@ -1306,9 +1307,9 @@ class WP_Brewing {
                        <td colspan="2">{name}</td> <!-- finally we rely on the auto-generated glossary posts -->
                      </tr>',
                     [
-                        'style_id' => $recipe["bjcp2015_style_id"],
-                        'name' => $this->renderStyleName($recipe["bjcp2015_style_id"]),
-                        'tt' => $this->renderStyleName($recipe["bjcp2015_style_id"])
+                        'style_id' => $sid,
+                        'name' => $this->renderStyleName($sid),
+                        'tt' => $this->renderStyleName($sid)
                     ]);
             } elseif ($recipe["style"]) {
                 $content .= $this->formatString(
@@ -1374,7 +1375,7 @@ class WP_Brewing {
                        <td colspan="2">{stock}</td>
                      </tr>',
                     [
-                        'stock' => ($recipe["stock"]) ? $recipe["stock"] : "0"
+                        'stock' => ($recipe["stock"]) ? (($recipe["stock_source"]) ? '<span data-cmtooltip="' . $recipe["stock_source"] . '">' . $recipe["stock"] . '</span>' : $recipe["stock"]) : "0"
                     ]);
             }
 
@@ -1602,7 +1603,7 @@ class WP_Brewing {
                 if ($recipe["planned_residual_alkalinity"]) {
                     $content .= $this->formatString(
                         '<tr>
-                           <td>Brauwasser-Restalkalität</td>
+                           <td>Hauptguss-Restalkalität</td>
                            <td colspan="2"><span data-cmtooltip="{tt}">{value} °dH</span></td>
                          </tr>',
                         [
@@ -1625,7 +1626,7 @@ class WP_Brewing {
                     }
                     $content .= $this->formatString(
                         '<tr>
-                           <td>Chlorid-Sulfat-Verhältnis</td>
+                           <td>Chlorid-Sulfat-Verhältnis gesamt</td>
                            <td colspan="2"><span data-cmtooltip="{tt}">{value}</span></td>
                          </tr>',
                         [
@@ -1962,11 +1963,11 @@ class WP_Brewing {
                 if ((($recipe["status"] >= STATUS_FERMENTATION) && ($recipe["status"] < STATUS_FERMENTATION_SECONDARY)) && ($recipe["ferm_start_date"])) {
                     $d = date_diff(date_create($recipe["ferm_start_date"]), date_create());
                     $days = $d->format("%a");
-                    $state = "bisher " . $days . " Tage";
+                    $state = "bisher " . $days . (($days == 1) ? " Tag" : " Tage");
                 } elseif ($recipe["fermentation_steps"][0]["days"]) {
-                    $state = $recipe["fermentation_steps"][0]["days"] . " Tage";
+                    $state = $recipe["fermentation_steps"][0]["days"] . (($days == 1) ? " Tag" : " Tage");
                 } elseif ($recipe["fermentation_steps"][0]["planned_days"]) {
-                    $state = $recipe["fermentation_steps"][0]["planned_days"] . " Tage";
+                    $state = $recipe["fermentation_steps"][0]["planned_days"] . (($days == 1) ? " Tag" : " Tage");
                 } else {
                     $state = "";
                 }
@@ -2062,7 +2063,42 @@ class WP_Brewing {
                         ]);
                 }
             }
-            
+
+            $rows = [];
+            foreach ($recipe["fermentables"] as $f) {
+                if ($f["usage"] != USAGE_PRIMARY) continue;
+                $rendered_name = $f["name"];
+                if (strlen($f["url"]) >= 1) {
+                    $rendered_name = '<a href="' . $f["url"] . '">' . $rendered_name . '</a>';
+                }
+                $rendered_time = "Hauptgärung";
+                $unit = "g";
+                $amount = $f["amount"] * 1000;
+                $dose = number_format($amount / $recipe["planned_batch_volume"], 1, ",", ".") . " " . $unit . "/l";
+    			$line = $this->formatString(
+                    '<tr>
+                       <td>{rendered_name}, {dose}</td>
+                       <td>{amount} {unit}</td>
+                       <td>{rendered_time}</td>
+                     </tr>',
+                    [
+                        'rendered_name' => $rendered_name,
+                        'dose' => $dose,
+                        'amount' => number_format($amount, ($unit == "g" ? 0 : 3), ",", "."),
+                        'unit' => $unit,
+                        'rendered_time' => $rendered_time
+                    ]);
+                array_push($rows, ["line" => $line, "usage" => $f["usage"], "time" => $f["time"]]);
+            }
+            usort($rows, 'adjuncts_cmp');
+            foreach ($rows as $row) {
+                $content .= $row["line"];
+            }
+
+
+
+
+
             $ferm_days = 0;
             $excludePhases = array();
             if (count($recipe["fermentation_steps"]) >= 1) {
@@ -2097,7 +2133,8 @@ class WP_Brewing {
                            <td><span data-cmtooltip="{tt_days}">{days}</span></t>
                          </tr>',
                         [
-                            'name' => $this->renderUsage($f["name"], $f["days"], $f["temp"]),
+                            // 'name' => $this->renderUsage($f["name"], $f["days"], $f["temp"]),
+                            'name' => $this->renderUsage($f["name"], null, null),
                             'days' => $days,
                             'temp' => $temp,
                             'tt_days' => $tt_days,
@@ -2408,7 +2445,7 @@ function wp_brewing_toggle_notes() {
             
             $location = $this->getKbhLocation();
 
-        	$db = new SQLite3($location);
+            $db = new SQLite3($location);
 
             $query = "SELECT * FROM Sud" . $where . " ORDER BY Braudatum" . ((($mode == "xml") || ($mode == "steuer")) ? "" : " DESC");
             $dbsude = $db->query($query);
@@ -2438,6 +2475,10 @@ function wp_brewing_toggle_notes() {
                 $betrag = floor($mengehl * $litersatz * 100) / 100;
 
                 $status = ($Sud["BierWurdeGebraut"]) ? (($Sud["BierWurdeVerbraucht"]) ? STATUS_EMPTIED : (($Sud["BierWurdeAbgefuellt"]) ? (       (date_add(new DateTime($this->renderDate($this->localToUtc($Sud["Abfuelldatum"]))), new DateInterval('P' . 7 * $Sud["Reifezeit"] . 'D'))->format("Y-m-d") < date("o-m-d")) ? STATUS_COMPLETE : STATUS_CONDITIONING) : STATUS_FERMENTATION)) : ($this->localToUtc($Sud["Braudatum"] == date("o-m-d") ? STATUS_BREWDAY : STATUS_PREPARING));
+
+		// hack: KBH ist obsolet, ehemals "COMPLETE" Sude sind nun definitiv leer. :-)
+		if ($status == STATUS_COMPLETE) { $status = STATUS_EMPTIED; }
+
                 $status = $this->statusWord($status);
                 
                 array_push($lines, [
@@ -2695,7 +2736,9 @@ function wp_brewing_toggle_notes() {
     'datum' => date("d.m.Y")
 ]);
         }
-        $db->close();
+        if ($db) {
+            $db->close();
+        }
         
         return $content;
 
@@ -2937,6 +2980,9 @@ function wp_brewing_toggle_notes() {
                     // "estimated_attenuation"  // should be calculated (or just copied from yeast?)
                     // "attenuation"  // should be calculated from og and fg
                 ];
+
+		// hack: KBH ist obsolet, ehemals "COMPLETE" Sude sind nun definitiv leer. :-)
+		if ($recipe["status"] == STATUS_COMPLETE) { $recipe["status"] = STATUS_EMPTIED; }
 
                 // fermentables
         		while ($malz = $dbschuettung->fetchArray()) {
@@ -3538,13 +3584,15 @@ function wp_brewing_toggle_notes() {
             ]);
         }
 
-        $t = round((($bf_batch["bottlingDate"] / 1000) - ($bf_batch["fermentationStartDate"] / 1000)) / 86400);
-        if (($t >= 1) && ($t <= 30)) {
-            if (count($recipe["fermentation_steps"]) >= 1) {
-                $recipe["fermentation_steps"][0]["days"] = $t;
+        if ($bf_batch["bottlingDate"] && ($bf_batch["bottlingDate"] / 1000 < time())) {
+            $t = round((($bf_batch["bottlingDate"] / 1000) - ($bf_batch["fermentationStartDate"] / 1000)) / 86400);
+            if (($t >= 1) && ($t <= 30)) {
+                if (count($recipe["fermentation_steps"]) >= 1) {
+                    $recipe["fermentation_steps"][0]["days"] = $t;
+                }
             }
         }
-
+	
         $recipe["batch_notes"] = array();
         foreach ($bf_batch["notes"] as $note) {
             array_push($recipe["batch_notes"], [
@@ -3560,11 +3608,46 @@ function wp_brewing_toggle_notes() {
             }
         }
                 
-        if ($bf_recipe["water"]["target"]["chloride"] and $bf_recipe["water"]["target"]["sulfate"]) {
+        if ($bf_recipe["water"]["total"]["chloride"] and $bf_recipe["water"]["total"]["sulfate"]) {
+            $recipe["chloride"] = $bf_recipe["water"]["total"]["chloride"];
+            $recipe["sulfate"] = $bf_recipe["water"]["total"]["sulfate"];
+        } elseif ($bf_recipe["water"]["target"]["chloride"] and $bf_recipe["water"]["target"]["sulfate"]) {
             $recipe["chloride"] = $bf_recipe["water"]["target"]["chloride"];
             $recipe["sulfate"] = $bf_recipe["water"]["target"]["sulfate"];
         }
-        
+
+	// get Plaato Keg data
+        $kegs = get_option('wp_brewing_plaato_keg_tokens', '');
+	if ($kegs) {
+	    $kegsarray = explode(" ", $kegs);
+	    $unit = null;
+	    foreach ($kegsarray as $keg) {
+		$parts = explode(":", $keg);
+		$plaato_keg = $parts[0];
+	        $url = "https://plaato.blynk.cc/" . $parts[1] . "/get/v64"; // name
+		$contents = file_get_contents($url);
+		if ($contents !== false) {
+		    $name  = json_decode($contents, true)[0];
+		    $name0 = explode(" ", $name)[0];
+		    // match complete name or first word (if no complete match yet)
+		    if (($name == $recipe["name"]) || (($unit == null) && ($name0 == explode(" ", $recipe["name"])[0]))) {
+		        $unit = "l";
+		    	$url = "https://plaato.blynk.cc/" . $parts[1] . "/get/v74"; // beer left unit
+			$contents = file_get_contents($url);
+			if ($contents !== false) {
+		            $unit = json_decode($contents, true)[0];
+			}
+		    	$url = "https://plaato.blynk.cc/" . $parts[1] . "/get/v51"; // beer left
+			$contents = file_get_contents($url);
+			if ($contents !== false) {
+		            $recipe["stock"] = number_format(json_decode($contents, true)[0], 1, ",", ".") . " " . $unit;
+			    $recipe["stock_source"] = "Plaato Keg: " . $plaato_keg;
+			}
+		    }
+		}
+	    }
+	}
+
         return $recipe;
     }
     

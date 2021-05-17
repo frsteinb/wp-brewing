@@ -49,6 +49,7 @@ class WP_Brewing_Admin {
 		register_setting( 'wp_brewing_group', 'wp_brewing_bs_cache', 'absint' );
 		register_setting( 'wp_brewing_group', 'wp_brewing_category', 'text' );
 		register_setting( 'wp_brewing_group', 'wp_brewing_bjcp_name', 'text' );
+		register_setting( 'wp_brewing_group', 'wp_brewing_plaato_keg_tokens', 'text' );
 		register_setting( 'wp_brewing_group', 'wp_brewing_2075_name_firma', 'text' );
 		register_setting( 'wp_brewing_group', 'wp_brewing_2075_ansprechpartner', 'text' );
 		register_setting( 'wp_brewing_group', 'wp_brewing_2075_strasse_nr', 'text' );
@@ -126,6 +127,14 @@ class WP_Brewing_Admin {
 			'wp_brewing_bjcp_name',
 			__( 'BJCP XML file name', 'wp-brewing' ),
 			array( $this, 'bjcp_name_option' ),
+			'wp-brewing',
+			'wp_brewing_section'
+		);
+
+		add_settings_field(
+			'wp_brewing_plaato_keg_tokens',
+			__( 'Plaato Keg Auth Tokens', 'wp-brewing' ),
+			array( $this, 'plaato_keg_tokens_option' ),
 			'wp-brewing',
 			'wp_brewing_section'
 		);
@@ -258,6 +267,12 @@ class WP_Brewing_Admin {
 		$location = get_option( 'wp_brewing_bjcp_name', "xxx" );
 		?>
 		<input type="text" size="60" id="wp_brewing_bjcp_name" name="wp_brewing_bjcp_name" value="<?php echo get_option( 'wp_brewing_bjcp_name', "..." ); ?>" />
+		<?php
+	}
+
+	function plaato_keg_tokens_option() {
+		?>
+		<input type="text" size="60" id="wp_brewing_plaato_keg_tokens" name="wp_brewing_plaato_keg_tokens" value="<?php echo get_option( 'wp_brewing_plaato_keg_tokens', "name1:token1 name2:token2 ..." ); ?>" />
 		<?php
 	}
 
